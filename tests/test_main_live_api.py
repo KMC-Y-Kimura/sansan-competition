@@ -15,18 +15,31 @@ from sansan_competition.execution.errors import AgentError, ErrorCode
 
 
 class FakeCourseClient:
-    def __init__(self, *, courses: list[dict] | None = None, coursework: list[dict] | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        courses: list[dict] | None = None,
+        coursework: list[dict] | None = None,
+        courses_error: Exception | None = None,
+        coursework_error: Exception | None = None,
+    ) -> None:
         self._courses = courses or []
         self._coursework = coursework or []
+        self._courses_error = courses_error
+        self._coursework_error = coursework_error
         self.list_courses_calls: list[dict] = []
         self.list_coursework_calls: list[dict] = []
 
     def list_courses(self, **kwargs) -> list[dict]:
         self.list_courses_calls.append(kwargs)
+        if self._courses_error is not None:
+            raise self._courses_error
         return list(self._courses)
 
     def list_coursework(self, course_id: str, **kwargs) -> list[dict]:
         self.list_coursework_calls.append({"course_id": course_id, **kwargs})
+        if self._coursework_error is not None:
+            raise self._coursework_error
         return list(self._coursework)
 
 
@@ -122,6 +135,22 @@ class LiveApiTests(unittest.TestCase):
         self.assertEqual(payload["items"][0]["courseId"], "course_001")
         self.assertEqual(payload["items"][0]["studentCount"], 34)
 
+    def test_courses_endpoint_returns_standardized_error_payload(self) -> None:
+        fake_client = FakeCourseClient(
+            courses_error=AgentError(ErrorCode.GOOGLE_AUTH_EXPIRED)
+        )
+
+        with patch.object(
+            app_main.GoogleClassroomClient,
+            "from_oauth",
+            return_value=fake_client,
+        ):
+            status_code, payload = self._request_json("/api/live/courses")
+
+        self.assertEqual(status_code, 500)
+        self.assertEqual(payload["items"], [])
+        self.assertEqual(payload["error"]["code"], "GOOGLE_AUTH_EXPIRED")
+
     def test_coursework_endpoint_returns_normalized_items(self) -> None:
         fake_client = FakeCourseClient(
             coursework=[
@@ -152,6 +181,24 @@ class LiveApiTests(unittest.TestCase):
         )
         self.assertEqual(payload["items"][0]["courseWorkId"], "cw_001")
         self.assertEqual(payload["items"][0]["title"], "二次関数プリント")
+
+    def test_coursework_endpoint_returns_standardized_error_payload(self) -> None:
+        fake_client = FakeCourseClient(
+            coursework_error=AgentError(ErrorCode.CLASSROOM_API_NOT_FOUND)
+        )
+
+        with patch.object(
+            app_main.GoogleClassroomClient,
+            "from_oauth",
+            return_value=fake_client,
+        ):
+            status_code, payload = self._request_json(
+                "/api/live/coursework?courseId=course_001"
+            )
+
+        self.assertEqual(status_code, 500)
+        self.assertEqual(payload["items"], [])
+        self.assertEqual(payload["error"]["code"], "CLASSROOM_API_NOT_FOUND")
 
     def test_submission_analysis_endpoint_returns_contract_valid_payload(self) -> None:
         with (
@@ -252,6 +299,13 @@ class LiveApiTests(unittest.TestCase):
         status_code, payload = self._request_json(
             "/api/live/submission-analysis?courseId=course_001"
         )
+
+        self.assertEqual(status_code, 400)
+        self.assertEqual(payload["status"], "error")
+        self.assertEqual(payload["error"]["code"], "INVALID_AGENT_OUTPUT")
+
+    def test_coursework_endpoint_missing_query_parameter_returns_400(self) -> None:
+        status_code, payload = self._request_json("/api/live/coursework")
 
         self.assertEqual(status_code, 400)
         self.assertEqual(payload["status"], "error")
