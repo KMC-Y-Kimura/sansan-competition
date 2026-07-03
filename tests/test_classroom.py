@@ -68,8 +68,10 @@ class FakeCoursesResource:
         self._course_work = course_work
         self._submission_pages = submission_pages
         self._announcement_sink = announcement_sink
+        self.get_calls = []
 
     def get(self, **kwargs):
+        self.get_calls.append(kwargs)
         return FakeRequest(self._course)
 
     def students(self):
@@ -218,6 +220,15 @@ class ClassroomIntegrationTests(unittest.TestCase):
         self.assertEqual(
             student_002.submitted_at.isoformat(timespec="minutes"),
             "2026-07-05T10:30+09:00",
+        )
+
+    def test_get_course_uses_id_parameter_for_google_client(self) -> None:
+        course = self.client.get_course("course_001")
+
+        self.assertEqual(course["id"], "course_001")
+        self.assertEqual(
+            self.service._courses.get_calls[0],
+            {"id": "course_001"},
         )
 
     def test_create_announcement_from_output_uses_contract_payload(self) -> None:

@@ -23,11 +23,16 @@ class StaticAssetTests(unittest.TestCase):
             "schemaVersion",
             "REMINDER_GENERATION",
             "editableFields",
-            "requiresTeacherApproval",
-            "CREATE_CLASSROOM_ANNOUNCEMENT",
             "normalizeAgentOutput",
             "partial_success",
             "CLASSROOM_API_PERMISSION_DENIED",
+            "/api/live/courses",
+            "/api/live/coursework",
+            "/api/live/submission-analysis",
+            "/api/live/reminder-generation",
+            "/api/live/post-reminder",
+            "buildEditedReminderPayload",
+            "Google Classroomに接続",
             "data-action=\"retry\"",
             "data-action=\"toggle-developer\"",
             "renderContractChecklist",
@@ -61,6 +66,8 @@ class StaticAssetTests(unittest.TestCase):
         main_py = (ROOT / "main.py").read_text(encoding="utf-8")
         self.assertIn("PUBLIC_DIR", main_py)
         self.assertIn("SimpleHTTPRequestHandler", main_py)
+        self.assertIn("ClassroomPrototypeHandler", main_py)
+        self.assertIn("/api/live/courses", main_py)
 
 
 if __name__ == "__main__":
