@@ -1,0 +1,18 @@
+from __future__ import annotations
+
+
+SCHEMA_VERSION = "1.0.0"
+
+ALLOWED_AGENT_TASK_TYPES = {
+    "COURSE_SUMMARY",
+    "COURSEWORK_SUMMARY",
+    "SUBMISSION_ANALYSIS",
+    "REMINDER_GENERATION",
+    "WEEKLY_REPORT",
+    "ANNOUNCEMENT_DRAFT",
+    "DOCUMENT_EXPORT",
+    "RUBRIC_SUPPORT",
+    "ERROR_ANALYSIS",
+}
+
+ALLOWED_STATUSES = {"success", "partial_success", "error"}
