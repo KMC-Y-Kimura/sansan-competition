@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from zoneinfo import ZoneInfo
-from typing import Any, Literal
+from typing import Any, Literal, get_args
 
 
 SCHEMA_VERSION = "1.0.0"
@@ -21,6 +21,7 @@ AgentTaskType = Literal[
 ]
 
 OutputStatus = Literal["success", "error"]
+ALLOWED_AGENT_TASK_TYPES = set(get_args(AgentTaskType))
 
 
 def _omit_none(value: Any) -> Any:
@@ -372,6 +373,12 @@ def validate_agent_output_dict(payload: dict[str, Any]) -> list[str]:
     if payload.get("schemaVersion") != SCHEMA_VERSION:
         errors.append(f"unsupported schemaVersion: {payload.get('schemaVersion')}")
 
+    if payload.get("agentTaskType") not in ALLOWED_AGENT_TASK_TYPES:
+        errors.append(f"unsupported agentTaskType: {payload.get('agentTaskType')}")
+
+    if payload.get("status") not in {"success", "error"}:
+        errors.append(f"unsupported status: {payload.get('status')}")
+
     summary = payload.get("summary")
     if not isinstance(summary, dict):
         errors.append("summary must be an object")
@@ -394,6 +401,22 @@ def validate_agent_output_dict(payload: dict[str, Any]) -> list[str]:
             errors.append("generatedAt must be an ISO-8601 datetime string")
     else:
         errors.append("generatedAt must be a string")
+
+    if payload.get("status") == "error":
+        error_items = payload.get("errors")
+        if not isinstance(error_items, list) or not error_items:
+            errors.append("errors must be a non-empty array when status is error")
+        else:
+            for index, item in enumerate(error_items):
+                if not isinstance(item, dict):
+                    errors.append(f"errors[{index}] must be an object")
+                    continue
+                required_error_keys = {"code", "message", "recoverable"}
+                missing_error = required_error_keys - item.keys()
+                if missing_error:
+                    errors.append(
+                        f"errors[{index}] missing keys: {', '.join(sorted(missing_error))}"
+                    )
 
     return errors
 

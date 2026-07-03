@@ -6,8 +6,17 @@ from sansan_competition import (
     Course,
     CourseWork,
     StudentSubmission,
+    build_agent_output,
+    build_announcement_draft_output,
+    build_course_summary_output,
+    build_coursework_summary_output,
+    build_document_export_output,
     build_error_output,
+    build_prompt_bundle,
     build_reminder_generation_output,
+    build_rubric_support_output,
+    build_submission_analysis_output,
+    build_weekly_report_output,
     validate_agent_output_dict,
 )
 
@@ -99,6 +108,76 @@ class HinataOutputTests(unittest.TestCase):
         self.assertEqual(validate_agent_output_dict(payload), [])
         self.assertEqual(payload["status"], "error")
         self.assertIn("errors", payload)
+
+    def test_all_task_builders_produce_valid_payloads(self) -> None:
+        outputs = [
+            build_course_summary_output(
+                request_id="req_course_summary",
+                course=self.course,
+                coursework=self.coursework,
+                submissions=self.submissions,
+            ),
+            build_coursework_summary_output(
+                request_id="req_coursework_summary",
+                course=self.course,
+                coursework=self.coursework,
+            ),
+            build_submission_analysis_output(
+                request_id="req_submission_analysis",
+                course=self.course,
+                coursework=self.coursework,
+                submissions=self.submissions,
+            ),
+            build_weekly_report_output(
+                request_id="req_weekly_report",
+                course=self.course,
+                courseworks=[self.coursework],
+                submissions_by_coursework={self.coursework.course_work_id: self.submissions},
+            ),
+            build_announcement_draft_output(
+                request_id="req_announcement_draft",
+                course=self.course,
+                coursework=self.coursework,
+            ),
+            build_document_export_output(
+                request_id="req_document_export",
+                course=self.course,
+                coursework=self.coursework,
+                submissions=self.submissions,
+            ),
+            build_rubric_support_output(
+                request_id="req_rubric_support",
+                course=self.course,
+                coursework=self.coursework,
+            ),
+        ]
+        for output in outputs:
+            payload = output.to_dict()
+            self.assertEqual(validate_agent_output_dict(payload), [], payload)
+
+    def test_dispatcher_handles_known_task_types(self) -> None:
+        output = build_agent_output(
+            "REMINDER_GENERATION",
+            request_id="req_dispatch",
+            course=self.course,
+            coursework=self.coursework,
+            submissions=self.submissions,
+        )
+        self.assertEqual(output.to_dict()["agentTaskType"], "REMINDER_GENERATION")
+
+    def test_prompt_bundle_is_structured(self) -> None:
+        prompt = build_prompt_bundle(
+            task_type="REMINDER_GENERATION",
+            course=self.course,
+            coursework=self.coursework,
+            submissions=self.submissions,
+            teacher_instruction="やさしい口調で",
+        )
+        payload = prompt.to_dict()
+        self.assertEqual(payload["taskType"], "REMINDER_GENERATION")
+        self.assertIn("自然文だけで返さず", payload["system"])
+        self.assertIn("やさしい口調で", payload["user"])
+        self.assertGreaterEqual(len(payload["constraints"]), 2)
 
 
 if __name__ == "__main__":

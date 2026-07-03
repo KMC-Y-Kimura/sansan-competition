@@ -23,9 +23,18 @@ from .contracts import (
     validate_agent_output_dict,
 )
 from .hinata import (
+    build_announcement_draft_output,
+    build_agent_output,
     build_course_summary_output,
+    build_coursework_summary_output,
+    build_document_export_output,
     build_error_output,
+    build_error_analysis_output,
     build_reminder_generation_output,
+    build_rubric_support_output,
+    build_submission_analysis_output,
+    build_weekly_report_output,
+    build_prompt_bundle,
 )
 
 __all__ = [
@@ -49,7 +58,16 @@ __all__ = [
     "StudentSubmission",
     "SCHEMA_VERSION",
     "validate_agent_output_dict",
+    "build_prompt_bundle",
+    "build_agent_output",
     "build_course_summary_output",
+    "build_coursework_summary_output",
     "build_error_output",
+    "build_submission_analysis_output",
     "build_reminder_generation_output",
+    "build_weekly_report_output",
+    "build_announcement_draft_output",
+    "build_document_export_output",
+    "build_rubric_support_output",
+    "build_error_analysis_output",
 ]
