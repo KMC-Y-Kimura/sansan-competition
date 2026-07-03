@@ -1,3 +1,5 @@
+"""Sansan competition package."""
+
 from .analysis import analyze_submissions, build_ai_task_input
 from .classroom import (
     GoogleClassroomClient,
