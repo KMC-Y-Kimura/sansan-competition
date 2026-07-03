@@ -29,3 +29,38 @@ Optional overrides:
 - `PR_MONITOR_INTERVAL_SECONDS=300` sets the poll interval.
 - `PR_MONITOR_LIMIT=50` sets the maximum number of open PRs to fetch.
 - `PR_MONITOR_REPO_DIR=/path/to/repo` sets the repository directory.
+
+## Review And Merge Scope Agent
+
+Run the review-triggered implementation agent once:
+
+```bash
+python3 scripts/review_implementation_agent.py
+```
+
+By default the agent runs in `all` mode. It can:
+
+- watch the current branch PR for newly submitted actionable reviews and implement the requested fixes
+- watch newly merged PRs on the default branch, absorb what landed, and continue the next concrete task inside its assigned role scope from `ROLE.md`
+
+The agent writes prompts under `.review-implementation-agent/prompts/` and invokes `codex exec` locally.
+
+Local dry-run:
+
+```bash
+python3 scripts/review_implementation_agent.py --dry-run
+```
+
+Continuous monitor:
+
+```bash
+bash scripts/monitor_review_implementation_agent.sh
+```
+
+Optional overrides:
+
+- `REVIEW_IMPLEMENT_INTERVAL_SECONDS=300` sets the polling interval.
+- `REVIEW_IMPLEMENT_REPO_DIR=/path/to/repo` sets the repository directory.
+- `REVIEW_IMPLEMENT_MODE=review|merged-progress|all` selects which trigger types to process.
+- `REVIEW_IMPLEMENT_ROLE_NAME=hinata` selects the ownership scope from `ROLE.md` for post-merge progression.
+- `REVIEW_IMPLEMENT_AGENT_COMMAND='codex exec --cd {repo_root} --sandbox workspace-write --ask-for-approval never'` overrides the implementation command.
