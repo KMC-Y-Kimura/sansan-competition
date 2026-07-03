@@ -77,6 +77,13 @@ python3 main.py sample-ai-input-reminder
 python3 main.py sample-ai-input-weekly-report
 ```
 
+部分成功サンプルの確認:
+
+```bash
+python3 main.py sample-partial-analysis
+python3 main.py sample-partial-reminder
+```
+
 ## テスト
 
 ```bash

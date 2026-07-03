@@ -161,6 +161,44 @@ class ContractTests(unittest.TestCase):
             with self.subTest(task_type=task_type):
                 self.assertEqual(validate_agent_output(payload), [])
 
+    def test_partial_success_response_contains_warning_and_error(self) -> None:
+        submissions, issues = normalize_submission_batch(
+            [
+                {
+                    "id": "sub_001",
+                    "courseId": "123456789",
+                    "courseWorkId": "987654321",
+                    "studentId": "student_001",
+                    "studentName": "山田太郎",
+                    "state": "NEW",
+                },
+                {
+                    "id": "sub_002",
+                    "courseWorkId": "987654321",
+                    "studentId": "student_002",
+                    "studentName": "佐藤花子",
+                    "state": "TURNED_IN",
+                },
+            ]
+        )
+        analysis = analyze_submissions(
+            self.course,
+            self.analysis.course_work,
+            submissions,
+            now=datetime(2026, 7, 3, 13, 0, tzinfo=JST),
+            normalization_issues=issues,
+        )
+
+        payload = build_submission_analysis_response(
+            "req_test_partial_analysis",
+            analysis,
+        )
+
+        self.assertEqual(payload["status"], "partial_success")
+        self.assertEqual(payload["errors"][0]["code"], "PARTIAL_CLASSROOM_DATA")
+        self.assertEqual(payload["gui"]["warnings"][0]["level"], "high")
+        self.assertEqual(validate_agent_output(payload), [])
+
 
 if __name__ == "__main__":
     unittest.main()

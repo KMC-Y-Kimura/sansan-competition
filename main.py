@@ -83,6 +83,78 @@ def build_sample_analysis():
     return course, course_work, analysis
 
 
+def build_partial_sample_analysis():
+    course = normalize_course(
+        {
+            "id": "123456789",
+            "name": "数学I",
+            "section": "1年A組",
+            "description": "二次関数の基礎",
+            "teacherIds": ["teacher_001"],
+            "studentCount": 4,
+        }
+    )
+    course_work = normalize_coursework(
+        {
+            "id": "987654321",
+            "courseId": "123456789",
+            "title": "二次関数プリント",
+            "description": "配布プリントを解いて提出",
+            "workType": "ASSIGNMENT",
+            "dueDate": "2026-07-05",
+            "dueTime": "23:59",
+        }
+    )
+    submissions, issues = normalize_submission_batch(
+        [
+            {
+                "id": "sub_001",
+                "courseId": "123456789",
+                "courseWorkId": "987654321",
+                "studentId": "student_001",
+                "studentName": "山田太郎",
+                "state": "NEW",
+            },
+            {
+                "id": "sub_002",
+                "courseId": "123456789",
+                "courseWorkId": "987654321",
+                "studentId": "student_002",
+                "studentName": "佐藤花子",
+                "state": "TURNED_IN",
+                "submissionTime": "2026-07-05T20:15:00+09:00",
+                "attachments": [{"driveFile": {"id": "file_001"}}],
+            },
+            {
+                "id": "sub_003",
+                "courseWorkId": "987654321",
+                "studentId": "student_003",
+                "studentName": "鈴木一郎",
+                "state": "TURNED_IN",
+            },
+            {
+                "id": "sub_004",
+                "courseId": "123456789",
+                "courseWorkId": "987654321",
+                "studentId": "student_004",
+                "studentName": "高橋未来",
+                "state": "TURNED_IN",
+                "submissionTime": "2026-07-06T00:30:00+09:00",
+                "late": True,
+            },
+        ]
+    )
+
+    analysis = analyze_submissions(
+        course,
+        course_work,
+        submissions,
+        now=datetime(2026, 7, 3, 13, 0, tzinfo=JST),
+        normalization_issues=issues,
+    )
+    return course, course_work, analysis
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -95,6 +167,8 @@ def main(argv: list[str] | None = None) -> None:
             "sample-course-summary",
             "sample-ai-input-reminder",
             "sample-ai-input-weekly-report",
+            "sample-partial-analysis",
+            "sample-partial-reminder",
         ),
     )
     args = parser.parse_args(argv)
@@ -147,6 +221,29 @@ def main(argv: list[str] | None = None) -> None:
             output_formats=["markdown", "pdf", "googleDocument"],
             tone="formal",
             teacher_instruction="事実と次のアクションを分けてください。",
+        )
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        return
+
+    if args.command == "sample-partial-analysis":
+        _, _, partial_analysis = build_partial_sample_analysis()
+        payload = build_submission_analysis_response(
+            "req_20260703_demo_partial_analysis",
+            partial_analysis,
+        )
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        return
+
+    if args.command == "sample-partial-reminder":
+        _, _, partial_analysis = build_partial_sample_analysis()
+        payload = build_reminder_generation_response(
+            "req_20260703_demo_partial_reminder",
+            partial_analysis,
+            reminder_title="課題提出リマインド",
+            reminder_body=(
+                "提出データの一部が取得できていません。"
+                "確認できた範囲で、まだ提出していない人は7月5日までに提出してください。"
+            ),
         )
         print(json.dumps(payload, ensure_ascii=False, indent=2))
         return
