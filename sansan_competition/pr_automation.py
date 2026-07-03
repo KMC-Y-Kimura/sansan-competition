@@ -104,6 +104,9 @@ class StudentSubmission:
     student_name: str
     state: str
     late: bool = False
+    assigned_grade: int | float | None = None
+    draft_grade: int | float | None = None
+    attachments: list[dict[str, Any]] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -114,6 +117,9 @@ class StudentSubmission:
             "studentName": self.student_name,
             "state": self.state,
             "late": self.late,
+            "assignedGrade": self.assigned_grade,
+            "draftGrade": self.draft_grade,
+            "attachments": list(self.attachments or []),
         }
 
 
@@ -259,6 +265,9 @@ def build_sample_context() -> tuple[Course, CourseWork, list[StudentSubmission]]
             student_name="山田太郎",
             state="NEW",
             late=False,
+            assigned_grade=None,
+            draft_grade=None,
+            attachments=[],
         ),
         StudentSubmission(
             student_submission_id="sub_2",
@@ -268,9 +277,206 @@ def build_sample_context() -> tuple[Course, CourseWork, list[StudentSubmission]]
             student_name="佐藤花子",
             state="TURNED_IN",
             late=False,
+            assigned_grade=92,
+            draft_grade=92,
+            attachments=[{"type": "driveFile", "name": "answer.pdf"}],
         ),
     ]
     return course, coursework, submissions
+
+
+def build_submission_snapshot(
+    submissions: Sequence[StudentSubmission] | None,
+) -> dict[str, Any]:
+    submissions = submissions or []
+    submitted_states = {"TURNED_IN", "RETURNED", "CREATED"}
+    missing = [submission for submission in submissions if submission.state not in submitted_states]
+    submitted = [submission for submission in submissions if submission.state in submitted_states]
+    late = [submission for submission in submissions if submission.late]
+    attachment_gaps = [
+        submission
+        for submission in submissions
+        if submission.state in submitted_states and not (submission.attachments or [])
+    ]
+    return {
+        "total": len(submissions),
+        "missing": missing,
+        "submitted": submitted,
+        "late": late,
+        "attachment_gaps": attachment_gaps,
+    }
+
+
+def infer_tone_label(tone: str) -> str:
+    normalized = tone.strip().lower()
+    if normalized in {"strict", "firm", "stern"}:
+        return "厳しめ"
+    if normalized in {"friendly", "gentle", "soft"}:
+        return "やさしい"
+    if normalized in {"short", "brief"}:
+        return "短文"
+    return "丁寧"
+
+
+def build_teacher_note(*parts: str) -> str:
+    fragments = [part.strip() for part in parts if part.strip()]
+    return "\n".join(f"- {fragment}" for fragment in fragments)
+
+
+def build_submission_rows(
+    submissions: Sequence[StudentSubmission] | None,
+    coursework: CourseWork | None,
+) -> list[dict[str, Any]]:
+    due_date = coursework.due_date if coursework else ""
+    rows: list[dict[str, Any]] = []
+    for submission in submissions or []:
+        status = "提出済み" if submission.state in {"TURNED_IN", "RETURNED", "CREATED"} else "未提出"
+        if submission.late:
+            status = f"{status}（遅延）"
+        rows.append(
+            {
+                "studentName": submission.student_name,
+                "status": status,
+                "dueDate": due_date,
+            }
+        )
+    return rows
+
+
+def build_markdown_report(
+    *,
+    title: str,
+    course: Course,
+    coursework: CourseWork | None,
+    snapshot: dict[str, Any],
+    recommendation: str,
+    teacher_note: str = "",
+) -> dict[str, Any]:
+    coursework_title = coursework.title if coursework else "なし"
+    missing_names = ", ".join(item.student_name for item in snapshot["missing"]) or "なし"
+    late_names = ", ".join(item.student_name for item in snapshot["late"]) or "なし"
+    lines = [
+        f"# {title}",
+        "",
+        "## 概要",
+        f"- 対象コース: {course.name}",
+        f"- 対象課題: {coursework_title}",
+        f"- 未提出者数: {snapshot['missing_count']}",
+        f"- 遅延提出者数: {snapshot['late_count']}",
+        "",
+        "## 提出状況",
+        f"- 未提出者: {missing_names}",
+        f"- 遅延提出者: {late_names}",
+        "",
+        "## AIによる提案",
+        recommendation,
+        "",
+        "## 注意事項",
+        teacher_note or "教師確認後に利用してください。",
+    ]
+    slug = course.name.lower().replace(" ", "_")
+    return {
+        "fileName": f"{slug}_report_20260703.md",
+        "title": title,
+        "content": "\n".join(lines),
+    }
+
+
+def build_pdf_report(
+    *,
+    title: str,
+    course: Course,
+    coursework: CourseWork | None,
+    snapshot: dict[str, Any],
+    recommendation: str,
+    teacher_note: str = "",
+) -> dict[str, Any]:
+    rows = [
+        [submission.student_name, "未提出", coursework.due_date if coursework else ""]
+        for submission in snapshot["missing"]
+    ] or [["なし", "-", coursework.due_date if coursework else ""]]
+    return {
+        "fileName": f"{course.name.lower().replace(' ', '_')}_report_20260703.pdf",
+        "title": title,
+        "layout": "report",
+        "sections": [
+            {
+                "heading": "概要",
+                "body": f"{course.name}の提出状況をまとめたレポートです。",
+            },
+            {
+                "heading": "未提出者一覧",
+                "table": {
+                    "columns": ["生徒名", "状態", "締切"],
+                    "rows": rows,
+                },
+            },
+            {
+                "heading": "AIによる提案",
+                "body": recommendation,
+            },
+            {
+                "heading": "注意事項",
+                "body": teacher_note or "教師確認後に利用してください。",
+            },
+        ],
+    }
+
+
+def build_google_document_report(
+    *,
+    title: str,
+    course: Course,
+    coursework: CourseWork | None,
+    snapshot: dict[str, Any],
+    recommendation: str,
+    teacher_note: str = "",
+) -> dict[str, Any]:
+    rows = [
+        [submission.student_name, "未提出", coursework.due_date if coursework else ""]
+        for submission in snapshot["missing"]
+    ] or [["なし", "-", coursework.due_date if coursework else ""]]
+    return {
+        "title": f"{title} 2026-07-03",
+        "documentType": "report",
+        "blocks": [
+            {"type": "heading1", "text": title},
+            {
+                "type": "paragraph",
+                "text": f"{course.name}の提出状況をもとにAIが作成したレポートです。",
+            },
+            {"type": "heading2", "text": "未提出者一覧"},
+            {
+                "type": "table",
+                "columns": ["生徒名", "状態", "締切"],
+                "rows": rows,
+            },
+            {"type": "heading2", "text": "AIによる提案"},
+            {"type": "paragraph", "text": recommendation},
+            {"type": "heading2", "text": "注意事項"},
+            {"type": "paragraph", "text": teacher_note or "教師確認後に利用してください。"},
+        ],
+    }
+
+
+def build_error_summary(error_code: str, error_message: str, recoverable: bool) -> Summary:
+    recommendations = {
+        "CLASSROOM_API_PERMISSION_DENIED": "Googleアカウントの権限を確認し、再度実行してください。",
+        "CLASSROOM_API_NOT_FOUND": "対象コースまたは課題の指定を確認してください。",
+        "CLASSROOM_API_RATE_LIMITED": "時間を置いてから再試行してください。",
+        "GOOGLE_AUTH_EXPIRED": "再ログインして認証を更新してください。",
+        "AI_GENERATION_FAILED": "入力条件を見直し、必要なら短い指示にして再実行してください。",
+        "INVALID_AGENT_OUTPUT": "生成結果の形式を確認し、再生成してください。",
+    }
+    return Summary(
+        title="処理中にエラーが発生しました",
+        short_summary=error_message,
+        teacher_action_required=recoverable,
+        recommended_action=recommendations.get(
+            error_code,
+            "入力条件と認証状態を確認したうえで再実行してください。",
+        ),
+    )
 
 
 def build_agent_output(
@@ -285,12 +491,11 @@ def build_agent_output(
     extra_notes: str = "",
     **kwargs: Any,
 ) -> AgentOutput:
-    summary = Summary(
-        title=f"{task_type} summary",
-        short_summary=f"Generated output for {task_type}.",
-        teacher_action_required=task_type != "COURSE_SUMMARY",
-        recommended_action="Review and proceed.",
-    )
+    snapshot = build_submission_snapshot(submissions)
+    snapshot["missing_count"] = len(snapshot["missing"])
+    snapshot["submitted_count"] = len(snapshot["submitted"])
+    snapshot["late_count"] = len(snapshot["late"])
+    teacher_note = build_teacher_note(teacher_instruction, extra_notes)
     gui = {"cards": [], "tables": [], "warnings": [], "editableFields": []}
     outputs = {
         "markdown": None,
@@ -300,13 +505,91 @@ def build_agent_output(
     }
     approval = Approval(required=False, reason="No approval required for this generated sample.", actions=[])
     errors: list[AgentError] = []
+    course_name = course.name
+    coursework_title = coursework.title if coursework else "課題"
+    due_text = coursework.due_date if coursework and coursework.due_date else "期限未設定"
+    tone_label = infer_tone_label(tone)
+    recommendation = teacher_instruction.strip() or "内容を確認し、必要に応じて教師が調整してください。"
+
+    summary = Summary(
+        title=f"{course_name} {task_type}",
+        short_summary=f"{course_name}向けに{task_type}の出力を生成しました。",
+        teacher_action_required=task_type != "COURSE_SUMMARY",
+        recommended_action=recommendation,
+    )
 
     if task_type == "REMINDER_GENERATION":
+        missing_count = snapshot["missing_count"]
+        reminder_text = (
+            f"{course_name}の課題「{coursework_title}」の提出期限は{due_text}です。"
+            f"まだ提出していない人は、期限までに提出してください。"
+        )
+        if tone_label == "厳しめ":
+            reminder_text = (
+                f"{course_name}の課題「{coursework_title}」は{due_text}が締切です。"
+                "未提出のままにせず、必ず期限内に提出してください。"
+            )
+        elif tone_label == "やさしい":
+            reminder_text = (
+                f"{course_name}の課題「{coursework_title}」の締切は{due_text}です。"
+                "まだの人は、無理のない範囲で早めに提出してください。"
+            )
+        elif tone_label == "短文":
+            reminder_text = f"課題「{coursework_title}」は{due_text}締切です。未提出の人は提出してください。"
+        if teacher_instruction.strip():
+            reminder_text = f"{reminder_text} {teacher_instruction.strip()}"
+        summary = Summary(
+            title="未提出課題リマインド案",
+            short_summary=f"{course_name}の課題「{coursework_title}」に未提出者が{missing_count}名います。",
+            teacher_action_required=True,
+            recommended_action="本文を確認し、必要に応じて修正してから投稿してください。",
+        )
+        gui = {
+            "cards": [
+                {
+                    "cardId": "card_missing_count",
+                    "type": "metric",
+                    "title": "未提出者数",
+                    "value": str(missing_count),
+                    "description": f"課題「{coursework_title}」の未提出者数です。",
+                }
+            ],
+            "tables": [
+                {
+                    "tableId": "table_missing_students",
+                    "title": "未提出者一覧",
+                    "columns": [
+                        {"key": "studentName", "label": "生徒名"},
+                        {"key": "status", "label": "状態"},
+                        {"key": "dueDate", "label": "締切"},
+                    ],
+                    "rows": [
+                        row
+                        for row in build_submission_rows(snapshot["missing"], coursework)
+                    ],
+                }
+            ],
+            "warnings": [
+                {
+                    "level": "medium",
+                    "message": "個別の生徒名は教師確認画面でのみ扱い、投稿本文には含めないでください。",
+                }
+            ],
+            "editableFields": [
+                {
+                    "fieldId": "reminder_body",
+                    "label": "リマインド本文",
+                    "type": "textarea",
+                    "value": reminder_text,
+                    "required": True,
+                }
+            ],
+        }
         outputs["classroomReminder"] = {
-            "target": {"courseId": course.course_id},
+            "target": {"courseId": course.course_id, "courseWorkId": coursework.course_work_id if coursework else ""},
             "postType": "announcement",
             "title": "課題提出リマインド",
-            "text": "提出をお願いします。",
+            "text": reminder_text,
             "materials": [],
             "scheduledTime": None,
             "assigneeMode": "ALL_STUDENTS",
@@ -327,13 +610,307 @@ def build_agent_output(
             ],
         )
     elif task_type == "COURSE_SUMMARY":
+        summary = Summary(
+            title=f"{course_name} コース概要",
+            short_summary=f"{course_name}には{course.student_count}名の受講者がいます。",
+            teacher_action_required=False,
+            recommended_action="コース構成と公開状態を確認してください。",
+        )
+        gui = {
+            "cards": [
+                {
+                    "cardId": "card_course_students",
+                    "type": "metric",
+                    "title": "受講者数",
+                    "value": str(course.student_count),
+                    "description": "現在の登録生徒数です。",
+                },
+                {
+                    "cardId": "card_course_state",
+                    "type": "status",
+                    "title": "コース状態",
+                    "value": course.state or "UNKNOWN",
+                    "description": "Classroom上のコース状態です。",
+                },
+            ],
+            "tables": [],
+            "warnings": [],
+            "editableFields": [],
+        }
         outputs.update(
             {
-                "markdown": {"content": "summary"},
-                "pdf": {"content": "summary"},
-                "googleDocument": {"content": "summary"},
+                "markdown": build_markdown_report(
+                    title=f"{course_name} コース概要",
+                    course=course,
+                    coursework=coursework,
+                    snapshot=snapshot,
+                    recommendation="コース情報と担当範囲を確認してください。",
+                    teacher_note=teacher_note,
+                ),
+                "pdf": build_pdf_report(
+                    title=f"{course_name} コース概要",
+                    course=course,
+                    coursework=coursework,
+                    snapshot=snapshot,
+                    recommendation="コース情報と担当範囲を確認してください。",
+                    teacher_note=teacher_note,
+                ),
+                "googleDocument": build_google_document_report(
+                    title=f"{course_name} コース概要",
+                    course=course,
+                    coursework=coursework,
+                    snapshot=snapshot,
+                    recommendation="コース情報と担当範囲を確認してください。",
+                    teacher_note=teacher_note,
+                ),
             }
         )
+    elif task_type == "COURSEWORK_SUMMARY":
+        summary = Summary(
+            title=f"{coursework_title} 課題概要",
+            short_summary=f"{coursework_title}の締切は{due_text}です。",
+            teacher_action_required=True,
+            recommended_action="締切と課題説明に問題がないか確認してください。",
+        )
+        gui = {
+            "cards": [
+                {
+                    "cardId": "card_coursework_due",
+                    "type": "metric",
+                    "title": "締切",
+                    "value": due_text,
+                    "description": "課題の締切日です。",
+                },
+                {
+                    "cardId": "card_coursework_points",
+                    "type": "metric",
+                    "title": "満点",
+                    "value": str(coursework.max_points if coursework else ""),
+                    "description": "設定された満点です。",
+                },
+            ],
+            "tables": [],
+            "warnings": [],
+            "editableFields": [],
+        }
+    elif task_type == "SUBMISSION_ANALYSIS":
+        summary = Summary(
+            title="提出状況分析",
+            short_summary=(
+                f"{course_name}の課題「{coursework_title}」は"
+                f"未提出{snapshot['missing_count']}名、遅延{snapshot['late_count']}名です。"
+            ),
+            teacher_action_required=True,
+            recommended_action="未提出者の確認後、必要ならリマインドを作成してください。",
+        )
+        gui = {
+            "cards": [
+                {
+                    "cardId": "card_submission_missing",
+                    "type": "metric",
+                    "title": "未提出者数",
+                    "value": str(snapshot["missing_count"]),
+                    "description": "未提出の生徒数です。",
+                },
+                {
+                    "cardId": "card_submission_late",
+                    "type": "metric",
+                    "title": "遅延提出者数",
+                    "value": str(snapshot["late_count"]),
+                    "description": "遅延提出の生徒数です。",
+                },
+            ],
+            "tables": [
+                {
+                    "tableId": "table_submission_status",
+                    "title": "提出状況一覧",
+                    "columns": [
+                        {"key": "studentName", "label": "生徒名"},
+                        {"key": "status", "label": "状態"},
+                        {"key": "dueDate", "label": "締切"},
+                    ],
+                    "rows": build_submission_rows(submissions, coursework),
+                }
+            ],
+            "warnings": [
+                {
+                    "level": "medium",
+                    "message": "個別名を含むため、共有範囲を教師向けに限定してください。",
+                }
+            ],
+            "editableFields": [],
+        }
+        outputs.update(
+            {
+                "markdown": build_markdown_report(
+                    title=f"{course_name} 提出状況レポート",
+                    course=course,
+                    coursework=coursework,
+                    snapshot=snapshot,
+                    recommendation="未提出者の確認とリマインド対象の選定を進めてください。",
+                    teacher_note=teacher_note,
+                ),
+                "pdf": build_pdf_report(
+                    title=f"{course_name} 提出状況レポート",
+                    course=course,
+                    coursework=coursework,
+                    snapshot=snapshot,
+                    recommendation="未提出者の確認とリマインド対象の選定を進めてください。",
+                    teacher_note=teacher_note,
+                ),
+                "googleDocument": build_google_document_report(
+                    title=f"{course_name} 提出状況レポート",
+                    course=course,
+                    coursework=coursework,
+                    snapshot=snapshot,
+                    recommendation="未提出者の確認とリマインド対象の選定を進めてください。",
+                    teacher_note=teacher_note,
+                ),
+            }
+        )
+    elif task_type == "WEEKLY_REPORT":
+        summary = Summary(
+            title="週次レポート",
+            short_summary=(
+                f"{course_name}では今週、未提出{snapshot['missing_count']}名、"
+                f"遅延提出{snapshot['late_count']}名が確認されました。"
+            ),
+            teacher_action_required=True,
+            recommended_action="今週の優先対応を確認し、必要な連絡文を確定してください。",
+        )
+        outputs.update(
+            {
+                "markdown": build_markdown_report(
+                    title=f"{course_name} 週次レポート",
+                    course=course,
+                    coursework=coursework,
+                    snapshot=snapshot,
+                    recommendation="期限接近課題の再案内と未提出者フォローを優先してください。",
+                    teacher_note=teacher_note,
+                ),
+                "pdf": build_pdf_report(
+                    title=f"{course_name} 週次レポート",
+                    course=course,
+                    coursework=coursework,
+                    snapshot=snapshot,
+                    recommendation="期限接近課題の再案内と未提出者フォローを優先してください。",
+                    teacher_note=teacher_note,
+                ),
+                "googleDocument": build_google_document_report(
+                    title=f"{course_name} 週次レポート",
+                    course=course,
+                    coursework=coursework,
+                    snapshot=snapshot,
+                    recommendation="期限接近課題の再案内と未提出者フォローを優先してください。",
+                    teacher_note=teacher_note,
+                ),
+            }
+        )
+    elif task_type == "ANNOUNCEMENT_DRAFT":
+        announcement_text = (
+            f"{course_name}の皆さんへ。課題「{coursework_title}」の締切は{due_text}です。"
+            "必要な提出物を確認し、期限までに対応してください。"
+        )
+        if teacher_instruction.strip():
+            announcement_text = f"{announcement_text} {teacher_instruction.strip()}"
+        summary = Summary(
+            title="お知らせ文案",
+            short_summary=f"{course_name}向けのお知らせ文案を生成しました。",
+            teacher_action_required=True,
+            recommended_action="本文を確認し、公開範囲を決めてから投稿してください。",
+        )
+        gui["editableFields"] = [
+            {
+                "fieldId": "announcement_body",
+                "label": "お知らせ本文",
+                "type": "textarea",
+                "value": announcement_text,
+                "required": True,
+            }
+        ]
+        outputs["classroomReminder"] = {
+            "target": {"courseId": course.course_id, "courseWorkId": coursework.course_work_id if coursework else ""},
+            "postType": "announcement",
+            "title": f"{coursework_title}のお知らせ",
+            "text": announcement_text,
+            "materials": coursework.materials if coursework else [],
+            "scheduledTime": None,
+            "assigneeMode": "ALL_STUDENTS",
+            "targetStudentIds": [],
+            "requiresTeacherApproval": True,
+        }
+        approval = Approval(
+            required=True,
+            reason="Classroomへ投稿する操作が含まれています。",
+            actions=[
+                {
+                    "actionId": "action_create_announcement",
+                    "type": "CREATE_CLASSROOM_ANNOUNCEMENT",
+                    "label": "Classroomにお知らせを投稿",
+                    "requiresConfirmation": True,
+                    "payloadRef": "outputs.classroomReminder",
+                }
+            ],
+        )
+    elif task_type == "DOCUMENT_EXPORT":
+        summary = Summary(
+            title="出力ドキュメント案",
+            short_summary=f"{course_name}向けの出力データを整形しました。",
+            teacher_action_required=True,
+            recommended_action="用途に応じて Markdown、PDF、Google Document を選択してください。",
+        )
+        outputs.update(
+            {
+                "markdown": build_markdown_report(
+                    title=f"{course_name} 出力ドキュメント",
+                    course=course,
+                    coursework=coursework,
+                    snapshot=snapshot,
+                    recommendation="共有前に機微情報の有無を確認してください。",
+                    teacher_note=teacher_note,
+                ),
+                "pdf": build_pdf_report(
+                    title=f"{course_name} 出力ドキュメント",
+                    course=course,
+                    coursework=coursework,
+                    snapshot=snapshot,
+                    recommendation="共有前に機微情報の有無を確認してください。",
+                    teacher_note=teacher_note,
+                ),
+                "googleDocument": build_google_document_report(
+                    title=f"{course_name} 出力ドキュメント",
+                    course=course,
+                    coursework=coursework,
+                    snapshot=snapshot,
+                    recommendation="共有前に機微情報の有無を確認してください。",
+                    teacher_note=teacher_note,
+                ),
+            }
+        )
+    elif task_type == "RUBRIC_SUPPORT":
+        summary = Summary(
+            title="ルーブリック補助案",
+            short_summary=f"{coursework_title}向けの評価観点案を整理しました。",
+            teacher_action_required=True,
+            recommended_action="授業目的に合う観点だけを採用してください。",
+        )
+        outputs["markdown"] = {
+            "fileName": "rubric_support_20260703.md",
+            "title": f"{coursework_title} ルーブリック補助",
+            "content": "\n".join(
+                [
+                    f"# {coursework_title} ルーブリック補助",
+                    "",
+                    "## 提案観点",
+                    "- 内容理解",
+                    "- 根拠の明確さ",
+                    "- 提出形式の遵守",
+                    "",
+                    "## 注意事項",
+                    teacher_note or "最終的な評価観点は教師が確定してください。",
+                ]
+            ),
+        }
     elif task_type == "ERROR_ANALYSIS":
         errors = [
             AgentError(
@@ -342,6 +919,11 @@ def build_agent_output(
                 recoverable=bool(kwargs.get("recoverable", True)),
             )
         ]
+        summary = build_error_summary(
+            errors[0].code,
+            errors[0].message,
+            errors[0].recoverable,
+        )
         return AgentOutput(
             request_id=request_id,
             generated_at="2026-07-03T13:00:00+09:00",
@@ -423,10 +1005,18 @@ def remove_cache_artifacts(paths: Sequence[Path]) -> list[str]:
 
 
 def run_command(args: Sequence[str], *, repo_root: Path) -> tuple[int, str]:
+    pythonpath = os.environ.get("PYTHONPATH", "")
+    pythonpath_parts = [str(repo_root)]
+    if pythonpath:
+        pythonpath_parts.append(pythonpath)
     completed = subprocess.run(
         list(args),
         cwd=repo_root,
-        env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+        env={
+            **os.environ,
+            "PYTHONDONTWRITEBYTECODE": "1",
+            "PYTHONPATH": os.pathsep.join(pythonpath_parts),
+        },
         capture_output=True,
         text=True,
         check=False,
@@ -444,14 +1034,14 @@ def run_pytest(repo_root: Path) -> CheckResult:
     return CheckResult(name="pytest", passed=returncode == 0, details=[output or "pytest completed without output"])
 
 
-def run_cli_contract_checks(repo_root: Path) -> CheckResult:
+def run_cli_contract_checks(tool_root: Path) -> CheckResult:
     details: list[str] = []
     passed = True
     for command in (
         ["scripts/review_implementation_agent.py", "--help"],
         ["scripts/pr_automation.py", "--help"],
     ):
-        returncode, output = run_command([sys.executable, *command], repo_root=repo_root)
+        returncode, output = run_command([sys.executable, *command], repo_root=tool_root)
         command_name = " ".join(command)
         if returncode != 0:
             passed = False
@@ -531,7 +1121,8 @@ def run_repo_hygiene_check(repo_root: Path) -> CheckResult:
     )
 
 
-def build_report(repo_root: Path, *, apply_fixes: bool) -> AutomationReport:
+def build_report(repo_root: Path, *, apply_fixes: bool, tool_root: Path | None = None) -> AutomationReport:
+    tool_root = tool_root or repo_root
     fixes_applied: list[str] = []
     if apply_fixes:
         cache_artifacts = collect_cache_artifacts(repo_root)
@@ -540,7 +1131,7 @@ def build_report(repo_root: Path, *, apply_fixes: bool) -> AutomationReport:
     checks = [
         run_repo_hygiene_check(repo_root),
         run_pytest(repo_root),
-        run_cli_contract_checks(repo_root),
+        run_cli_contract_checks(tool_root),
         run_agent_task_contract_checks(),
     ]
     return AutomationReport(fixes_applied=fixes_applied, checks=checks)
@@ -551,13 +1142,15 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--apply-fixes", action="store_true")
     parser.add_argument("--report-path", default="")
     parser.add_argument("--repo-root", default=".")
+    parser.add_argument("--tool-root", default="")
     return parser.parse_args(argv)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
     repo_root = Path(args.repo_root).resolve()
-    report = build_report(repo_root, apply_fixes=args.apply_fixes)
+    tool_root = Path(args.tool_root).resolve() if args.tool_root else repo_root
+    report = build_report(repo_root, apply_fixes=args.apply_fixes, tool_root=tool_root)
     markdown = report.to_markdown()
     if args.report_path:
         report_path = Path(args.report_path)

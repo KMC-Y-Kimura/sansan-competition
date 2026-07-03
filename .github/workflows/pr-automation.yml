@@ -30,6 +30,13 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
 
+      - name: Check out workflow tools
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          path: .workflow-tools
+          fetch-depth: 0
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -38,7 +45,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e . pytest
+          python -m pip install pytest
 
       - name: Configure git
         run: |
@@ -49,7 +56,7 @@ jobs:
         id: autofix
         run: |
           set +e
-          python scripts/pr_automation.py --apply-fixes --report-path "$GITHUB_WORKSPACE/pr-automation-report.md"
+          python .workflow-tools/scripts/pr_automation.py --repo-root "$GITHUB_WORKSPACE" --tool-root "$GITHUB_WORKSPACE/.workflow-tools" --apply-fixes --report-path "$GITHUB_WORKSPACE/pr-automation-report.md"
           echo "status=$?" >> "$GITHUB_OUTPUT"
           exit 0
 
@@ -70,7 +77,7 @@ jobs:
         id: validate
         run: |
           set +e
-          python scripts/pr_automation.py --report-path "$GITHUB_WORKSPACE/pr-automation-report.md"
+          python .workflow-tools/scripts/pr_automation.py --repo-root "$GITHUB_WORKSPACE" --tool-root "$GITHUB_WORKSPACE/.workflow-tools" --report-path "$GITHUB_WORKSPACE/pr-automation-report.md"
           echo "status=$?" >> "$GITHUB_OUTPUT"
           exit 0
 
