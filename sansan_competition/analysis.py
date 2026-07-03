@@ -16,6 +16,52 @@ from .models import (
 )
 
 DEFAULT_DUE_SOON_WINDOW = timedelta(days=2)
+TASK_GOALS = {
+    AgentTaskType.COURSE_SUMMARY: "コース全体の状況を教師向けに簡潔に要約する",
+    AgentTaskType.COURSEWORK_SUMMARY: "課題単位の情報を整理し、重要点を抜き出す",
+    AgentTaskType.SUBMISSION_ANALYSIS: "提出状況を分類し、教師が確認すべき点を明確にする",
+    AgentTaskType.REMINDER_GENERATION: "未提出者向けのリマインド文を作るための事実を渡す",
+    AgentTaskType.WEEKLY_REPORT: "週次レポート向けに、進捗と注意点を整理する",
+    AgentTaskType.ANNOUNCEMENT_DRAFT: "Classroom お知らせ案に必要な事実だけを渡す",
+    AgentTaskType.DOCUMENT_EXPORT: "Markdown、PDF、Google Document 用の構造を作る前提データを渡す",
+    AgentTaskType.RUBRIC_SUPPORT: "提出済みデータをもとにルーブリック補助の前提情報を渡す",
+    AgentTaskType.ERROR_ANALYSIS: "取得失敗や欠損を踏まえて説明用の事実を整理する",
+}
+TASK_DEFAULT_OUTPUT_FORMATS = {
+    AgentTaskType.COURSE_SUMMARY: ["summary", "gui"],
+    AgentTaskType.COURSEWORK_SUMMARY: ["summary", "gui"],
+    AgentTaskType.SUBMISSION_ANALYSIS: ["summary", "gui", "markdown", "pdf", "googleDocument"],
+    AgentTaskType.REMINDER_GENERATION: ["classroomReminder", "markdown", "pdf", "googleDocument"],
+    AgentTaskType.WEEKLY_REPORT: ["markdown", "pdf", "googleDocument"],
+    AgentTaskType.ANNOUNCEMENT_DRAFT: ["classroomReminder", "markdown", "googleDocument"],
+    AgentTaskType.DOCUMENT_EXPORT: ["markdown", "pdf", "googleDocument"],
+    AgentTaskType.RUBRIC_SUPPORT: ["summary", "gui"],
+    AgentTaskType.ERROR_ANALYSIS: ["summary", "gui"],
+}
+TASK_REQUIRED_FIELDS = {
+    AgentTaskType.COURSE_SUMMARY: ["summary.title", "summary.shortSummary", "gui.cards"],
+    AgentTaskType.COURSEWORK_SUMMARY: ["summary", "gui.tables"],
+    AgentTaskType.SUBMISSION_ANALYSIS: ["summary", "gui.tables", "outputs.markdown"],
+    AgentTaskType.REMINDER_GENERATION: [
+        "summary",
+        "gui.editableFields",
+        "outputs.classroomReminder",
+    ],
+    AgentTaskType.WEEKLY_REPORT: ["summary", "outputs.markdown", "outputs.pdf"],
+    AgentTaskType.ANNOUNCEMENT_DRAFT: [
+        "summary",
+        "gui.editableFields",
+        "outputs.classroomReminder",
+    ],
+    AgentTaskType.DOCUMENT_EXPORT: ["outputs.markdown", "outputs.pdf", "outputs.googleDocument"],
+    AgentTaskType.RUBRIC_SUPPORT: ["summary", "gui.tables"],
+    AgentTaskType.ERROR_ANALYSIS: ["summary", "errors", "gui.warnings"],
+}
+COMMON_PROHIBITED_ITEMS = [
+    "不明な締切日や課題名を推測して補わない",
+    "他の生徒の提出状況が分かる表現を生徒向け本文に入れない",
+    "教師承認前に投稿済みであるかのように書かない",
+]
 
 
 def analyze_submissions(
@@ -52,12 +98,17 @@ def build_ai_task_input(
     task_type: AgentTaskType | str,
     analysis: SubmissionAnalysis,
     *,
+    output_formats: list[str] | None = None,
+    tone: str = "polite",
+    teacher_instruction: str = "",
+    prohibited_items: list[str] | None = None,
     include_student_names: bool = False,
 ) -> dict[str, Any]:
     resolved_task = AgentTaskType(task_type)
+    selected_evaluations = _select_evaluations_for_task(resolved_task, analysis)
     student_entries: list[dict[str, Any]] = []
 
-    for index, evaluation in enumerate(analysis.evaluations, start=1):
+    for index, evaluation in enumerate(selected_evaluations, start=1):
         entry = {
             "studentRef": f"student_{index:03d}",
             "status": evaluation.status_label,
@@ -73,16 +124,47 @@ def build_ai_task_input(
             entry["studentName"] = evaluation.student_name
         student_entries.append(entry)
 
+    normalized_teacher_instruction = teacher_instruction.strip()
+    target_summary = _summarize_evaluations(selected_evaluations)
+
     return {
         "taskType": resolved_task.value,
+        "focus": {
+            "goal": TASK_GOALS[resolved_task],
+            "selectionMode": _selection_mode_label(resolved_task),
+            "requiredOutputFields": TASK_REQUIRED_FIELDS[resolved_task],
+        },
         "facts": {
             "course": analysis.course.to_contract(),
             "courseWork": analysis.course_work.to_contract(),
             "submissionSummary": analysis.counts(),
+            "targetSummary": target_summary,
             "submissions": student_entries,
+            "warnings": _build_input_warnings(analysis),
+        },
+        "delivery": {
+            "outputFormats": output_formats or TASK_DEFAULT_OUTPUT_FORMATS[resolved_task],
+            "tone": tone,
+            "teacherInstruction": normalized_teacher_instruction,
+            "approvalRequired": resolved_task
+            in {
+                AgentTaskType.REMINDER_GENERATION,
+                AgentTaskType.ANNOUNCEMENT_DRAFT,
+            },
+        },
+        "constraints": {
+            "mustUseOnlyProvidedFacts": True,
+            "mustSeparateFactsAndSuggestions": True,
+            "mustNotInventUnknownInformation": True,
+            "prohibitedItems": COMMON_PROHIBITED_ITEMS + list(prohibited_items or []),
         },
         "privacy": {
             "containsStudentNames": include_student_names,
+            "studentIdentifierMode": (
+                "real_student_id_and_name"
+                if include_student_names
+                else "pseudonymized_student_ref_only"
+            ),
             "recommendedForExternalAI": not include_student_names,
         },
     }
@@ -162,3 +244,88 @@ def _evaluation_sort_key(entry: SubmissionEvaluation) -> tuple[int, str]:
     else:
         priority = 4
     return priority, entry.student_name
+
+
+def _select_evaluations_for_task(
+    task_type: AgentTaskType,
+    analysis: SubmissionAnalysis,
+) -> list[SubmissionEvaluation]:
+    if task_type in {
+        AgentTaskType.COURSE_SUMMARY,
+        AgentTaskType.COURSEWORK_SUMMARY,
+        AgentTaskType.DOCUMENT_EXPORT,
+        AgentTaskType.ERROR_ANALYSIS,
+    }:
+        return []
+    if task_type in {
+        AgentTaskType.REMINDER_GENERATION,
+        AgentTaskType.ANNOUNCEMENT_DRAFT,
+    }:
+        return list(analysis.unsubmitted)
+    if task_type is AgentTaskType.WEEKLY_REPORT:
+        return _deduplicate_evaluations(
+            [
+                *analysis.unsubmitted,
+                *analysis.late_submissions,
+                *analysis.attachment_flags,
+            ]
+        )
+    if task_type is AgentTaskType.RUBRIC_SUPPORT:
+        return list(analysis.submitted)
+    return list(analysis.evaluations)
+
+
+def _selection_mode_label(task_type: AgentTaskType) -> str:
+    if task_type in {
+        AgentTaskType.COURSE_SUMMARY,
+        AgentTaskType.COURSEWORK_SUMMARY,
+        AgentTaskType.DOCUMENT_EXPORT,
+        AgentTaskType.ERROR_ANALYSIS,
+    }:
+        return "aggregate_only"
+    if task_type in {
+        AgentTaskType.REMINDER_GENERATION,
+        AgentTaskType.ANNOUNCEMENT_DRAFT,
+    }:
+        return "unsubmitted_targets"
+    if task_type is AgentTaskType.WEEKLY_REPORT:
+        return "flagged_students_only"
+    if task_type is AgentTaskType.RUBRIC_SUPPORT:
+        return "submitted_students_only"
+    return "all_students"
+
+
+def _build_input_warnings(analysis: SubmissionAnalysis) -> list[str]:
+    warnings: list[str] = []
+    if analysis.normalization_issues:
+        warnings.append("一部データの正規化に失敗しているため、集計は完全でない可能性があります。")
+    if analysis.attachment_flags:
+        warnings.append("添付不足の可能性は推定であり、実際の提出内容確認が必要です。")
+    return warnings
+
+
+def _summarize_evaluations(
+    evaluations: list[SubmissionEvaluation],
+) -> dict[str, int]:
+    return {
+        "targetStudentCount": len(evaluations),
+        "missingCount": sum(entry.is_missing for entry in evaluations),
+        "dueSoonCount": sum(entry.is_due_soon for entry in evaluations),
+        "lateCount": sum(entry.is_late for entry in evaluations),
+        "attachmentMissingPossibleCount": sum(
+            entry.attachment_missing_possible for entry in evaluations
+        ),
+    }
+
+
+def _deduplicate_evaluations(
+    evaluations: list[SubmissionEvaluation],
+) -> list[SubmissionEvaluation]:
+    unique_entries: list[SubmissionEvaluation] = []
+    seen_student_ids: set[str] = set()
+    for entry in evaluations:
+        if entry.student_id in seen_student_ids:
+            continue
+        seen_student_ids.add(entry.student_id)
+        unique_entries.append(entry)
+    return unique_entries
