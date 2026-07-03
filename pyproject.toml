@@ -8,6 +8,15 @@ dependencies = [
     "reportlab>=4.0",
 ]
 
+# 実Google API接続に必要。モック/オフラインテストには不要。
+# 有効化: uv sync --extra google
+[project.optional-dependencies]
+google = [
+    "google-api-python-client>=2.100",
+    "google-auth>=2.30",
+    "google-auth-oauthlib>=1.2",
+]
+
 [build-system]
 requires = ["setuptools>=64", "wheel"]
 build-backend = "setuptools.build_meta"

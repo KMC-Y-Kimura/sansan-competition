@@ -8,3 +8,7 @@ __pycache__/
 
 # 出力生成物 (mocky: Markdown/PDF)
 output/
+
+# Google OAuth 認証情報 (絶対にコミットしない)
+client_secret.json
+token.json
