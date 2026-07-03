@@ -1,301 +1,34 @@
-const rawAgentOutputs = {
-  success: {
-    schemaVersion: "1.0.0",
-    requestId: "req_20260703_001",
-    generatedAt: "2026-07-03T13:00:00+09:00",
-    agentTaskType: "REMINDER_GENERATION",
-    status: "success",
-    course: {
-      courseId: "123456789",
-      name: "数学I",
-      section: "1年A組",
-    },
-    summary: {
-      title: "未提出課題リマインド案",
-      shortSummary: "数学Iの課題「二次関数プリント」に未提出者が12名います。",
-      teacherActionRequired: true,
-      recommendedAction:
-        "未提出者に対してClassroomでリマインドを投稿してください。",
-    },
-    gui: {
-      cards: [
-        {
-          cardId: "card_001",
-          type: "metric",
-          title: "未提出者数",
-          value: "12",
-          description: "課題「二次関数プリント」の未提出者数です。",
-        },
-        {
-          cardId: "card_002",
-          type: "metric",
-          title: "期限まで",
-          value: "2日",
-          description: "締切は2026-07-05 23:59です。",
-        },
-        {
-          cardId: "card_003",
-          type: "metric",
-          title: "遅延提出",
-          value: "3",
-          description: "提出済みですが締切後の提出です。",
-        },
-      ],
-      tables: [
-        {
-          tableId: "table_001",
-          title: "未提出者一覧",
-          columns: [
-            { key: "studentName", label: "生徒名" },
-            { key: "status", label: "状態" },
-            { key: "dueDate", label: "締切" },
-          ],
-          rows: [
-            { studentName: "山田太郎", status: "未提出", dueDate: "2026-07-05" },
-            { studentName: "佐藤花子", status: "未提出", dueDate: "2026-07-05" },
-            { studentName: "鈴木一郎", status: "期限接近", dueDate: "2026-07-05" },
-          ],
-        },
-      ],
-      warnings: [
-        {
-          level: "medium",
-          message: "生徒向け投稿には、個別の未提出者名を含めないでください。",
-        },
-        {
-          level: "high",
-          message: "Classroom投稿は教師の承認後にのみ実行してください。",
-        },
-      ],
-      editableFields: [
-        {
-          fieldId: "reminder_title",
-          label: "投稿タイトル",
-          type: "text",
-          value: "課題提出リマインド",
-          required: true,
-        },
-        {
-          fieldId: "reminder_body",
-          label: "リマインド本文",
-          type: "textarea",
-          value:
-            "課題「二次関数プリント」の提出期限が近づいています。まだ提出していない人は、7月5日までに提出してください。分からないところがある場合は、早めに相談してください。",
-          required: true,
-        },
-      ],
-    },
-    outputs: {
-      markdown: {
-        fileName: "math1_submission_report_20260703.md",
-        title: "数学I 提出状況レポート",
-        content:
-          "# 数学I 提出状況レポート\n\n## 概要\n課題「二次関数プリント」に未提出者が12名います。\n\n## 推奨アクション\nClassroomで全体向けのリマインドを投稿してください。",
-      },
-      pdf: {
-        fileName: "math1_submission_report_20260703.pdf",
-        title: "数学I 提出状況レポート",
-        layout: "report",
-        sections: [
-          {
-            heading: "概要",
-            body: "数学Iの課題提出状況をまとめたレポートです。",
-          },
-        ],
-      },
-      googleDocument: null,
-      classroomReminder: {
-        target: {
-          courseId: "123456789",
-          courseWorkId: "987654321",
-        },
-        postType: "announcement",
-        title: "課題提出リマインド",
-        text:
-          "課題「二次関数プリント」の提出期限が近づいています。まだ提出していない人は、7月5日までに提出してください。",
-        materials: [],
-        scheduledTime: null,
-        assigneeMode: "ALL_STUDENTS",
-        targetStudentIds: [],
-        requiresTeacherApproval: true,
-      },
-    },
-    approval: {
-      required: true,
-      reason: "Classroomへの投稿を行うため、教師の承認が必要です。",
-      actions: [
-        {
-          actionId: "action_001",
-          type: "CREATE_CLASSROOM_ANNOUNCEMENT",
-          label: "Classroomにリマインドを投稿",
-          requiresConfirmation: true,
-          payloadRef: "outputs.classroomReminder",
-        },
-        {
-          actionId: "action_002",
-          type: "EXPORT_MARKDOWN",
-          label: "Markdownとして保存",
-          requiresConfirmation: false,
-          payloadRef: "outputs.markdown",
-        },
-        {
-          actionId: "action_003",
-          type: "EXPORT_PDF",
-          label: "PDFとして出力",
-          requiresConfirmation: false,
-          payloadRef: "outputs.pdf",
-        },
-      ],
-    },
-    errors: [],
-  },
-  partial: {
-    schemaVersion: "1.0.0",
-    requestId: "req_20260703_003",
-    generatedAt: "2026-07-03T13:20:00+09:00",
-    agentTaskType: "SUBMISSION_ANALYSIS",
-    status: "partial_success",
-    course: {
-      courseId: "123456789",
-      name: "数学I",
-      section: "1年A組",
-    },
-    summary: {
-      title: "提出状況の部分取得",
-      shortSummary: "一部の提出状況だけを取得できました。",
-      teacherActionRequired: true,
-      recommendedAction: "再試行するか、取得できた範囲で内容を確認してください。",
-    },
-    gui: {
-      cards: [
-        {
-          cardId: "card_loaded",
-          type: "metric",
-          title: "取得済み",
-          value: "24",
-          description: "提出状況を取得できた生徒数です。",
-        },
-        {
-          cardId: "card_failed",
-          type: "metric",
-          title: "未取得",
-          value: "12",
-          description: "API制限により取得できなかった生徒数です。",
-        },
-      ],
-      tables: [],
-      warnings: [
-        {
-          level: "high",
-          message: "一部データが未取得のため、投稿前に再確認してください。",
-        },
-      ],
-      editableFields: [],
-    },
-    outputs: {
-      markdown: null,
-      pdf: null,
-      googleDocument: null,
-      classroomReminder: null,
-    },
-    approval: {
-      required: false,
-      reason: "外部投稿を含まないため承認操作はありません。",
-      actions: [],
-    },
-    errors: [
-      {
-        code: "CLASSROOM_API_RATE_LIMITED",
-        message: "提出状況の一部取得がレート制限で失敗しました。",
-        recoverable: true,
-      },
-    ],
-  },
-  error: {
-    schemaVersion: "1.0.0",
-    requestId: "req_20260703_002",
-    generatedAt: "2026-07-03T13:10:00+09:00",
-    agentTaskType: "SUBMISSION_ANALYSIS",
-    status: "error",
-    summary: {
-      title: "提出状況の取得に失敗しました",
-      shortSummary: "Google Classroom APIから提出状況を取得できませんでした。",
-      teacherActionRequired: true,
-      recommendedAction: "Googleアカウントの権限を確認し、再度実行してください。",
-    },
-    errors: [
-      {
-        code: "CLASSROOM_API_PERMISSION_DENIED",
-        message: "提出状況を取得する権限がありません。",
-        recoverable: true,
-      },
-    ],
-  },
-};
-
-const courses = [
-  {
-    courseId: "123456789",
-    name: "数学I",
-    section: "1年A組",
-    studentCount: 36,
-    updatedAt: "2026-07-03 12:20",
-  },
-  {
-    courseId: "223456789",
-    name: "情報I",
-    section: "1年B組",
-    studentCount: 34,
-    updatedAt: "2026-07-02 16:40",
-  },
-];
-
-const assignments = [
-  {
-    courseWorkId: "987654321",
-    title: "二次関数プリント",
-    dueDate: "2026-07-05",
-    dueTime: "23:59",
-    turnedIn: 21,
-    missing: 12,
-    late: 3,
-    state: "PUBLISHED",
-  },
-  {
-    courseWorkId: "887654321",
-    title: "小テスト復習",
-    dueDate: "2026-07-08",
-    dueTime: "18:00",
-    turnedIn: 29,
-    missing: 7,
-    late: 0,
-    state: "PUBLISHED",
-  },
-];
-
 const scenarioModes = {
   ready: "ready",
   loading: "loading",
   empty: "empty",
-  partial: "partial",
   error: "error",
 };
 
-const state = {
-  isLoggedIn: false,
-  view: "login",
-  selectedCourseId: courses[0].courseId,
-  selectedAssignmentId: assignments[0].courseWorkId,
-  scenario: "ready",
-  agentOutput: normalizeAgentOutput(rawAgentOutputs.success),
-  editableValues: {},
-  fieldErrors: {},
-  selectedOutputs: new Set(["classroom", "markdown"]),
-  developerMode: false,
-  posted: false,
+const emptyCourse = {
+  courseId: "",
+  name: "コース未選択",
+  section: "",
+  description: "",
+  state: "",
+  teacherIds: [],
+  studentCount: 0,
 };
 
-const app = document.querySelector("#app");
+const emptyAssignment = {
+  courseWorkId: "",
+  courseId: "",
+  title: "課題未選択",
+  description: "",
+  workType: "ASSIGNMENT",
+  maxPoints: null,
+  dueDate: null,
+  dueTime: null,
+  state: "",
+  materials: [],
+  topicId: "",
+  hasRubric: false,
+};
 
 const workflowSteps = [
   ["login", "ログイン"],
@@ -307,8 +40,120 @@ const workflowSteps = [
   ["confirm", "承認"],
 ];
 
+const app = document.querySelector("#app");
+
+const state = {
+  isLoggedIn: false,
+  view: "login",
+  scenario: scenarioModes.ready,
+  loadingMessage: "",
+  courses: [],
+  assignments: [],
+  assignmentMetrics: {},
+  selectedCourseId: "",
+  selectedAssignmentId: "",
+  agentOutput: null,
+  editableValues: {},
+  fieldErrors: {},
+  selectedOutputs: new Set(["classroom", "markdown"]),
+  developerMode: false,
+  posted: false,
+  postMessage: "",
+  postMessageTone: "success",
+};
+
+state.agentOutput = normalizeAgentOutput(buildPlaceholderOutput());
 resetEditableValues();
 render();
+
+function buildPlaceholderOutput({
+  title = "提出状況を取得してください",
+  shortSummary = "Google Classroom に接続して、コースと課題を選択してください。",
+  recommendedAction = "ログイン後に対象課題を選び、提出状況を取得してください。",
+  agentTaskType = "SUBMISSION_ANALYSIS",
+} = {}) {
+  return {
+    schemaVersion: "1.0.0",
+    requestId: "",
+    generatedAt: "",
+    agentTaskType,
+    status: "success",
+    course: null,
+    summary: {
+      title,
+      shortSummary,
+      teacherActionRequired: false,
+      recommendedAction,
+    },
+    gui: {
+      cards: [],
+      tables: [],
+      warnings: [],
+      editableFields: [],
+    },
+    outputs: {
+      markdown: null,
+      pdf: null,
+      googleDocument: null,
+      classroomReminder: null,
+    },
+    approval: {
+      required: false,
+      reason: "",
+      actions: [],
+    },
+    errors: [],
+  };
+}
+
+function buildLocalErrorOutput({
+  title,
+  shortSummary,
+  recommendedAction,
+  errorCode,
+  errorMessage,
+  agentTaskType = "SUBMISSION_ANALYSIS",
+}) {
+  const course = selectedCourse();
+  return {
+    schemaVersion: "1.0.0",
+    requestId: "",
+    generatedAt: new Date().toISOString(),
+    agentTaskType,
+    status: "error",
+    course: course.courseId ? course : null,
+    summary: {
+      title,
+      shortSummary,
+      teacherActionRequired: true,
+      recommendedAction,
+    },
+    gui: {
+      cards: [],
+      tables: [],
+      warnings: [],
+      editableFields: [],
+    },
+    outputs: {
+      markdown: null,
+      pdf: null,
+      googleDocument: null,
+      classroomReminder: null,
+    },
+    approval: {
+      required: false,
+      reason: "失敗レスポンスのため承認操作はありません。",
+      actions: [],
+    },
+    errors: [
+      {
+        code: errorCode ?? "CLASSROOM_API_PERMISSION_DENIED",
+        message: errorMessage ?? shortSummary,
+        recoverable: true,
+      },
+    ],
+  };
+}
 
 function normalizeAgentOutput(payload) {
   const input = isObject(payload) ? payload : {};
@@ -318,6 +163,8 @@ function normalizeAgentOutput(payload) {
   const approval = isObject(input.approval) ? input.approval : {};
   const course = isObject(input.course) ? input.course : {};
   const errors = Array.isArray(input.errors) ? input.errors : [];
+  const fallbackCourse =
+    typeof state === "undefined" ? emptyCourse : selectedCourse();
   const validationMessages = [];
 
   if (input.schemaVersion !== "1.0.0") {
@@ -335,9 +182,9 @@ function normalizeAgentOutput(payload) {
     agentTaskType: input.agentTaskType ?? "ERROR_ANALYSIS",
     status: input.status ?? "error",
     course: {
-      courseId: course.courseId ?? "",
-      name: course.name ?? selectedCourse().name,
-      section: course.section ?? selectedCourse().section,
+      courseId: course.courseId ?? fallbackCourse.courseId,
+      name: course.name ?? fallbackCourse.name,
+      section: course.section ?? fallbackCourse.section,
     },
     summary: {
       title: summary.title ?? "処理結果",
@@ -372,6 +219,24 @@ function isObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
+function selectedCourse() {
+  return (
+    state.courses.find((course) => course.courseId === state.selectedCourseId) ??
+    state.courses[0] ??
+    emptyCourse
+  );
+}
+
+function selectedAssignment() {
+  return (
+    state.assignments.find(
+      (assignment) => assignment.courseWorkId === state.selectedAssignmentId,
+    ) ??
+    state.assignments[0] ??
+    emptyAssignment
+  );
+}
+
 function resetEditableValues() {
   state.editableValues = Object.fromEntries(
     state.agentOutput.gui.editableFields.map((field) => [
@@ -381,6 +246,8 @@ function resetEditableValues() {
   );
   state.fieldErrors = {};
   state.posted = false;
+  state.postMessage = "";
+  state.postMessageTone = "success";
 }
 
 function escapeHtml(value) {
@@ -390,91 +257,6 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
-}
-
-function selectedCourse() {
-  return courses.find((course) => course.courseId === state.selectedCourseId);
-}
-
-function selectedAssignment() {
-  return assignments.find(
-    (assignment) => assignment.courseWorkId === state.selectedAssignmentId,
-  );
-}
-
-function render() {
-  app.innerHTML = state.isLoggedIn ? renderShell() : renderLogin();
-  bindEvents();
-}
-
-function renderLogin() {
-  return `
-    <main class="login">
-      <section class="login-panel">
-        <p class="login-kicker">Google Classroom operations</p>
-        <h1>Classroom運用支援</h1>
-        <p class="subtle">Google Classroomの提出状況を確認し、AIの提案を教師が編集・承認してから投稿します。</p>
-        <ul class="check-list">
-          <li>読み取り権限と投稿権限を分けて扱う</li>
-          <li>生徒向け投稿には未提出者名を含めない</li>
-          <li>Classroom投稿は承認画面を必ず通す</li>
-        </ul>
-        <button class="button primary" data-action="login">Googleでログイン</button>
-      </section>
-    </main>
-  `;
-}
-
-function renderShell() {
-  return `
-    <div class="layout">
-      <aside class="sidebar">
-        <div class="brand">
-          <span class="brand-mark">C</span>
-          <span>Classroom支援</span>
-        </div>
-        <div class="sidebar-context">
-          <strong>${escapeHtml(selectedCourse().name)}</strong>
-          <span class="subtle">${escapeHtml(selectedCourse().section)} / ${selectedCourse().studentCount}名</span>
-        </div>
-        <nav class="nav" aria-label="主画面">
-          ${navButton("courses", "01", "コース選択")}
-          ${navButton("dashboard", "02", "ダッシュボード")}
-          ${navButton("assignment", "03", "課題詳細")}
-          ${navButton("review", "04", "出力確認")}
-          ${navButton("exports", "05", "出力選択")}
-          ${navButton("confirm", "06", "投稿確認")}
-        </nav>
-      </aside>
-      <main class="main">
-        <header class="topbar">
-          <div>
-            <h1>${pageTitle()}</h1>
-            <div class="meta-row">
-              <span class="badge">${escapeHtml(selectedCourse().name)} / ${escapeHtml(selectedCourse().section)}</span>
-              <span class="subtle">生成 ${formatGeneratedAt(state.agentOutput.generatedAt)}</span>
-              <span class="badge ${statusBadgeClass(state.agentOutput.status)}">${statusLabel(state.agentOutput.status)}</span>
-            </div>
-          </div>
-          <div class="action-row">
-            <button class="button ghost" data-action="retry">再取得</button>
-            <button class="button" data-action="logout">ログアウト</button>
-          </div>
-        </header>
-        <div class="content" aria-live="polite">
-          ${renderScenarioControl()}
-          ${renderStatusBanner()}
-          ${renderView()}
-        </div>
-      </main>
-    </div>
-  `;
-}
-
-function navButton(view, icon, label) {
-  const active = state.view === view ? " active" : "";
-  const current = state.view === view ? ' aria-current="page"' : "";
-  return `<button class="nav-button${active}" data-view="${view}"${current}><span>${icon}</span><span>${label}</span></button>`;
 }
 
 function formatGeneratedAt(value) {
@@ -508,27 +290,238 @@ function pageTitle() {
   return titles[state.view] ?? "コース選択";
 }
 
-function renderScenarioControl() {
-  const modes = [
-    ["ready", "正常"],
-    ["loading", "読込"],
-    ["empty", "空"],
-    ["partial", "部分"],
-    ["error", "失敗"],
-  ];
+function setLoading(message) {
+  state.scenario = scenarioModes.loading;
+  state.loadingMessage = message;
+  render();
+}
+
+function clearLoading() {
+  state.loadingMessage = "";
+}
+
+function setEmptyState({
+  title,
+  shortSummary,
+  recommendedAction,
+  view,
+  agentTaskType = "SUBMISSION_ANALYSIS",
+}) {
+  state.scenario = scenarioModes.empty;
+  state.loadingMessage = "";
+  state.view = view;
+  state.agentOutput = normalizeAgentOutput(
+    buildPlaceholderOutput({
+      title,
+      shortSummary,
+      recommendedAction,
+      agentTaskType,
+    }),
+  );
+  resetEditableValues();
+}
+
+function applyAgentOutput(payload, { view } = {}) {
+  state.agentOutput = normalizeAgentOutput(payload);
+  state.scenario =
+    state.agentOutput.status === "error"
+      ? scenarioModes.error
+      : scenarioModes.ready;
+  state.loadingMessage = "";
+  if (view) {
+    state.view = view;
+  }
+  resetEditableValues();
+}
+
+function extractApiError(error) {
+  const payload = error?.payload;
+  if (payload?.error?.message) {
+    return {
+      code: payload.error.code ?? "CLASSROOM_API_PERMISSION_DENIED",
+      message: payload.error.message,
+    };
+  }
+  if (payload?.summary?.shortSummary) {
+    const firstError = Array.isArray(payload.errors) ? payload.errors[0] : null;
+    return {
+      code: firstError?.code ?? "CLASSROOM_API_PERMISSION_DENIED",
+      message: firstError?.message ?? payload.summary.shortSummary,
+    };
+  }
+  return {
+    code: "CLASSROOM_API_PERMISSION_DENIED",
+    message: error?.message ?? "不明なエラーが発生しました。",
+  };
+}
+
+function handleRequestFailure(error, options) {
+  const apiError = extractApiError(error);
+  state.loadingMessage = "";
+  state.scenario = scenarioModes.error;
+  state.view = options.view ?? state.view;
+  state.agentOutput = normalizeAgentOutput(
+    buildLocalErrorOutput({
+      title: options.title,
+      shortSummary: options.shortSummary ?? apiError.message,
+      recommendedAction: options.recommendedAction,
+      errorCode: apiError.code,
+      errorMessage: apiError.message,
+      agentTaskType: options.agentTaskType,
+    }),
+  );
+  if (options.loggedOut) {
+    state.isLoggedIn = false;
+  }
+  resetEditableValues();
+  render();
+}
+
+function buildEditedReminderPayload() {
+  const reminder = state.agentOutput.outputs.classroomReminder;
+  if (!reminder) {
+    return null;
+  }
+  return {
+    ...reminder,
+    title: state.editableValues.reminder_title ?? reminder.title ?? "",
+    text: state.editableValues.reminder_body ?? reminder.text ?? "",
+  };
+}
+
+function deriveAssignmentMetrics(agentOutput) {
+  const table = agentOutput.gui.tables[0];
+  const totalRows = Array.isArray(table?.rows) ? table.rows.length : 0;
+  const missing = cardNumber(agentOutput.gui.cards, "未提出者数");
+  const late = cardNumber(agentOutput.gui.cards, "遅延提出者数");
+  return {
+    turnedIn: String(Math.max(totalRows - missing, 0)),
+    missing: String(missing),
+    late: String(late),
+  };
+}
+
+function cardNumber(cards, title) {
+  const card = cards.find((item) => item.title === title);
+  const parsed = Number.parseInt(card?.value ?? "0", 10);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function normalizedAssignments(items) {
+  return Array.isArray(items)
+    ? items.map((item) => ({
+        ...emptyAssignment,
+        ...item,
+      }))
+    : [];
+}
+
+function assignmentDisplay(item) {
+  const metrics = state.assignmentMetrics[item.courseWorkId];
+  return {
+    turnedIn: metrics?.turnedIn ?? "未分析",
+    missing: metrics?.missing ?? "未分析",
+    late: metrics?.late ?? "未分析",
+  };
+}
+
+function dueDateDistanceCount() {
+  return state.assignments.filter((assignment) => {
+    if (!assignment.dueDate) return false;
+    const due = new Date(`${assignment.dueDate}T${assignment.dueTime ?? "23:59"}:00+09:00`);
+    const diffMs = due.getTime() - Date.now();
+    return diffMs >= 0 && diffMs <= 3 * 24 * 60 * 60 * 1000;
+  }).length;
+}
+
+function render() {
+  app.innerHTML = state.isLoggedIn ? renderShell() : renderLogin();
+  bindEvents();
+}
+
+function renderLogin() {
+  return `
+    <main class="login">
+      <section class="login-panel">
+        <p class="login-kicker">Google Classroom operations</p>
+        <h1>Classroom運用支援</h1>
+        <p class="subtle">Google Classroomの提出状況を確認し、AIの提案を教師が編集・承認してから投稿します。</p>
+        <ul class="check-list">
+          <li>読み取り権限と投稿権限を分けて扱う</li>
+          <li>生徒向け投稿には未提出者名を含めない</li>
+          <li>Classroom投稿は承認画面を必ず通す</li>
+        </ul>
+        ${
+          state.scenario === scenarioModes.error
+            ? renderAlert("danger", state.agentOutput.summary.shortSummary)
+            : ""
+        }
+        <button class="button primary" data-action="login">Google Classroomに接続</button>
+      </section>
+    </main>
+  `;
+}
+
+function renderShell() {
+  const course = selectedCourse();
+  return `
+    <div class="layout">
+      <aside class="sidebar">
+        <div class="brand">
+          <span class="brand-mark">C</span>
+          <span>Classroom支援</span>
+        </div>
+        <div class="sidebar-context">
+          <strong>${escapeHtml(course.name)}</strong>
+          <span class="subtle">${escapeHtml(course.section)} / ${course.studentCount}名</span>
+        </div>
+        <nav class="nav" aria-label="主画面">
+          ${navButton("courses", "01", "コース選択")}
+          ${navButton("dashboard", "02", "ダッシュボード")}
+          ${navButton("assignment", "03", "課題詳細")}
+          ${navButton("review", "04", "出力確認")}
+          ${navButton("exports", "05", "出力選択")}
+          ${navButton("confirm", "06", "投稿確認")}
+        </nav>
+      </aside>
+      <main class="main">
+        <header class="topbar">
+          <div>
+            <h1>${pageTitle()}</h1>
+            <div class="meta-row">
+              <span class="badge">${escapeHtml(course.name)} / ${escapeHtml(course.section)}</span>
+              <span class="subtle">生成 ${formatGeneratedAt(state.agentOutput.generatedAt)}</span>
+              <span class="badge ${statusBadgeClass(state.agentOutput.status)}">${statusLabel(state.agentOutput.status)}</span>
+            </div>
+          </div>
+          <div class="action-row">
+            <button class="button ghost" data-action="retry">再取得</button>
+            <button class="button" data-action="logout">ログアウト</button>
+          </div>
+        </header>
+        <div class="content" aria-live="polite">
+          ${renderToolbar()}
+          ${renderStatusBanner()}
+          ${renderView()}
+        </div>
+      </main>
+    </div>
+  `;
+}
+
+function navButton(view, icon, label) {
+  const active = state.view === view ? " active" : "";
+  const current = state.view === view ? ' aria-current="page"' : "";
+  return `<button class="nav-button${active}" data-view="${view}"${current}><span>${icon}</span><span>${label}</span></button>`;
+}
+
+function renderToolbar() {
   return `
     <section class="toolbar" aria-label="データ状態">
       ${renderWorkflow()}
-      <div class="segmented" role="group" aria-label="データ状態">
-        ${modes
-          .map(
-            ([mode, label]) => `
-              <button class="segment${state.scenario === mode ? " active" : ""}" data-scenario="${mode}" aria-pressed="${state.scenario === mode}">
-                ${label}
-              </button>
-            `,
-          )
-          .join("")}
+      <div class="approval-meta">
+        <span class="badge success">ライブデータ</span>
+        <span class="subtle">${escapeHtml(state.loadingMessage || "server-side OAuth / Google Classroom API")}</span>
       </div>
     </section>
   `;
@@ -557,7 +550,7 @@ function renderStatusBanner() {
         <span class="spinner" aria-hidden="true"></span>
         <div>
           <h2>データ取得中</h2>
-          <p class="subtle">Classroom情報とAI出力を読み込んでいます。</p>
+          <p class="subtle">${escapeHtml(state.loadingMessage || "Google Classroom情報を読み込んでいます。")}</p>
         </div>
       </section>
     `;
@@ -623,8 +616,9 @@ function renderLoadingSkeleton() {
 function renderEmptyState() {
   return `
     <section class="empty-state">
-      <h2>表示できるデータがありません</h2>
-      <p class="subtle">対象コースまたは課題を変更して再取得してください。</p>
+      <h2>${escapeHtml(state.agentOutput.summary.title)}</h2>
+      <p class="subtle">${escapeHtml(state.agentOutput.summary.shortSummary)}</p>
+      <p class="subtle">${escapeHtml(state.agentOutput.summary.recommendedAction)}</p>
       <button class="button primary" data-action="retry">再試行</button>
     </section>
   `;
@@ -647,56 +641,65 @@ function renderCourses() {
       <div class="section-heading">
         <div>
           <h2>担当コース</h2>
-          <p class="subtle">教師が確認対象のコースを選び、提出状況のダッシュボードへ進みます。</p>
+          <p class="subtle">OAuthで許可されたGoogle Classroomコースを取得し、提出状況の分析対象を選びます。</p>
         </div>
-        <span class="badge">モックデータ</span>
+        <span class="badge success">Google Classroom</span>
       </div>
-      <div class="grid cols-2">
-        ${courses
-          .map(
-            (course) => `
-              <article class="card ${course.courseId === state.selectedCourseId ? "selected" : ""}">
-                <div class="card-header">
-                  <h3>${escapeHtml(course.name)}</h3>
-                  ${course.courseId === state.selectedCourseId ? '<span class="badge success">選択中</span>' : ""}
-                </div>
-                <p class="subtle">${escapeHtml(course.section)} / ${course.studentCount}名 / 更新 ${escapeHtml(course.updatedAt)}</p>
-                <div class="action-row" style="margin-top: 16px">
-                  <button class="button primary" data-course="${course.courseId}">このコースを開く</button>
-                </div>
-              </article>
-            `,
-          )
-          .join("")}
-      </div>
+      ${
+        state.courses.length === 0
+          ? renderInlineEmpty("表示できるコースがありません。Google Classroom の権限とコース状態を確認してください。")
+          : `<div class="grid cols-2">
+              ${state.courses
+                .map(
+                  (course) => `
+                    <article class="card ${course.courseId === state.selectedCourseId ? "selected" : ""}">
+                      <div class="card-header">
+                        <h3>${escapeHtml(course.name)}</h3>
+                        ${course.courseId === state.selectedCourseId ? '<span class="badge success">選択中</span>' : ""}
+                      </div>
+                      <p class="subtle">${escapeHtml(course.section)} / ${course.studentCount}名 / 状態 ${escapeHtml(course.state ?? "UNKNOWN")}</p>
+                      <div class="action-row" style="margin-top: 16px">
+                        <button class="button primary" data-course="${course.courseId}">このコースを開く</button>
+                      </div>
+                    </article>
+                  `,
+                )
+                .join("")}
+            </div>`
+      }
     </section>
   `;
 }
 
 function renderDashboard() {
   const assignment = selectedAssignment();
+  const metrics = state.assignmentMetrics[assignment.courseWorkId] ?? {
+    turnedIn: "未分析",
+    missing: "未分析",
+    late: "未分析",
+  };
   return `
     <section class="band">
       <div class="grid cols-3">
-        ${metricCard("未提出課題", String(assignments.length), "対応が必要な課題数", "danger")}
-        ${metricCard("期限接近", "1", "3日以内に締切の課題", "warning")}
-        ${metricCard("最近のお知らせ", "4", "直近7日間の投稿", "success")}
+        ${metricCard("対象課題", String(state.assignments.length), "公開済み課題の件数", "success")}
+        ${metricCard("未提出者", metrics.missing, `${escapeHtml(assignment.title)} の未提出者数`, metrics.missing === "0" ? "success" : "danger")}
+        ${metricCard("期限接近課題", String(dueDateDistanceCount()), "3日以内に締切が来る課題数", "warning")}
       </div>
     </section>
     <section class="band">
       <div class="section-heading">
         <div>
           <h2>最近の課題</h2>
-          <p class="subtle">Classroomから取得した事実データをもとに、対応優先度を確認します。</p>
+          <p class="subtle">Google Classroomから取得した事実データをもとに、対応対象を確認します。</p>
         </div>
         <button class="button" data-view="assignment">課題詳細へ</button>
       </div>
-      ${renderAssignmentTable([assignment])}
+      ${state.assignments.length > 0 ? renderAssignmentTable(state.assignments.slice(0, 5)) : renderInlineEmpty("表示できる課題がありません。")}
     </section>
     <section class="card">
       <div class="card-header">
-        <h3>AIによる注意点</h3>
-        <span class="badge warning">提案</span>
+        <h3>現在の分析要約</h3>
+        <span class="badge warning">事実ベース</span>
       </div>
       <p>${escapeHtml(state.agentOutput.summary.shortSummary)}</p>
       <p class="subtle">${escapeHtml(state.agentOutput.summary.recommendedAction)}</p>
@@ -721,16 +724,16 @@ function renderAssignment() {
       <div class="section-heading">
         <div>
           <h2>課題一覧</h2>
-          <p class="subtle">提出済み、未提出、遅延を横並びで確認し、AI生成対象の課題を選びます。</p>
+          <p class="subtle">課題を選ぶと提出分析を再取得し、必要ならリマインド案を生成します。</p>
         </div>
-        <button class="button primary" data-action="generate-reminder">リマインド文を生成</button>
+        <button class="button primary" data-action="generate-reminder" ${state.selectedAssignmentId ? "" : "disabled"}>リマインド文を生成</button>
       </div>
-      ${renderAssignmentTable(assignments)}
+      ${state.assignments.length > 0 ? renderAssignmentTable(state.assignments) : renderInlineEmpty("表示できる課題がありません。")}
     </section>
     <section class="band">
       <div class="section-heading">
         <h2>提出状況</h2>
-        <span class="badge warning">未提出者を確認</span>
+        <span class="badge warning">選択中の課題</span>
       </div>
       ${firstTable ? renderAgentTable(firstTable) : renderInlineEmpty("提出状況は未取得です。")}
     </section>
@@ -753,21 +756,22 @@ function renderAssignmentTable(items) {
         </thead>
         <tbody>
           ${items
-            .map(
-              (item) => `
+            .map((item) => {
+              const display = assignmentDisplay(item);
+              return `
                 <tr class="${item.courseWorkId === state.selectedAssignmentId ? "selected-row" : ""}">
                   <td>${escapeHtml(item.title)}</td>
-                  <td>${escapeHtml(item.dueDate)} ${escapeHtml(item.dueTime)}</td>
-                  <td><span class="badge success">${item.turnedIn}</span></td>
-                  <td><span class="badge danger">${item.missing}</span></td>
-                  <td><span class="badge warning">${item.late}</span></td>
+                  <td>${escapeHtml(item.dueDate ?? "未設定")} ${escapeHtml(item.dueTime ?? "")}</td>
+                  <td><span class="badge success">${escapeHtml(display.turnedIn)}</span></td>
+                  <td><span class="badge danger">${escapeHtml(display.missing)}</span></td>
+                  <td><span class="badge warning">${escapeHtml(display.late)}</span></td>
                   <td>
-                    <span class="badge">${escapeHtml(item.state)}</span>
+                    <span class="badge">${escapeHtml(item.state ?? "UNKNOWN")}</span>
                     <button class="button ghost compact" data-assignment="${item.courseWorkId}">選択</button>
                   </td>
                 </tr>
-              `,
-            )
+              `;
+            })
             .join("")}
         </tbody>
       </table>
@@ -783,9 +787,20 @@ function renderReview() {
         <h2>${escapeHtml(output.summary.title)}</h2>
         <span class="badge">${escapeHtml(output.schemaVersion)}</span>
       </div>
-      ${output.gui.cards.length > 0 ? `<div class="grid cols-3">${output.gui.cards
-        .map((card, index) => metricCard(card.title, card.value, card.description, ["danger", "warning", "success"][index] ?? ""))
-        .join("")}</div>` : renderInlineEmpty("カード表示用データはありません。")}
+      ${
+        output.gui.cards.length > 0
+          ? `<div class="grid cols-3">${output.gui.cards
+              .map((card, index) =>
+                metricCard(
+                  card.title,
+                  card.value,
+                  card.description,
+                  ["danger", "warning", "success"][index] ?? "",
+                ),
+              )
+              .join("")}</div>`
+          : renderInlineEmpty("カード表示用データはありません。")
+      }
     </section>
     <section class="review-layout">
       <div class="card">
@@ -794,7 +809,11 @@ function renderReview() {
           <span class="badge">教師確認</span>
         </div>
         <div class="grid" style="margin-top: 14px">
-          ${output.gui.editableFields.length > 0 ? output.gui.editableFields.map(renderEditableField).join("") : renderInlineEmpty("編集可能な項目はありません。")}
+          ${
+            output.gui.editableFields.length > 0
+              ? output.gui.editableFields.map(renderEditableField).join("")
+              : renderInlineEmpty("編集可能な項目はありません。")
+          }
         </div>
       </div>
       <div class="card">
@@ -819,7 +838,11 @@ function renderReview() {
       </div>
     </section>
     <section class="band">
-      ${output.gui.tables.length > 0 ? output.gui.tables.map(renderAgentTableSection).join("") : renderInlineEmpty("表形式のデータはありません。")}
+      ${
+        output.gui.tables.length > 0
+          ? output.gui.tables.map(renderAgentTableSection).join("")
+          : renderInlineEmpty("表形式のデータはありません。")
+      }
     </section>
     ${renderDeveloperPanel()}
   `;
@@ -1035,15 +1058,20 @@ function renderExports() {
     </section>
     <section class="card">
       <h3>Markdownプレビュー</h3>
-      ${state.agentOutput.outputs.markdown ? `<pre class="output-preview">${escapeHtml(state.agentOutput.outputs.markdown.content)}</pre>` : renderInlineEmpty("Markdown出力はありません。")}
+      ${
+        state.agentOutput.outputs.markdown
+          ? `<pre class="output-preview">${escapeHtml(state.agentOutput.outputs.markdown.content)}</pre>`
+          : renderInlineEmpty("Markdown出力はありません。")
+      }
     </section>
   `;
 }
 
 function renderConfirm() {
-  const title = state.editableValues.reminder_title ?? state.agentOutput.outputs.classroomReminder?.title ?? "";
-  const body = state.editableValues.reminder_body ?? state.agentOutput.outputs.classroomReminder?.text ?? "";
-  const canPost = Boolean(state.agentOutput.outputs.classroomReminder) && validateEditableFields(false);
+  const reminder = buildEditedReminderPayload();
+  const title = reminder?.title ?? "";
+  const body = reminder?.text ?? "";
+  const canPost = Boolean(reminder) && validateEditableFields(false);
   return `
     <section class="band">
       <div class="section-heading">
@@ -1058,7 +1086,7 @@ function renderConfirm() {
         </article>
         <article class="card">
           <h3>公開範囲</h3>
-          <p>コース全体</p>
+          <p>${escapeHtml(reminder?.assigneeMode === "INDIVIDUAL_STUDENTS" ? "個別配信" : "コース全体")}</p>
           <p class="subtle">個別生徒名は投稿本文に含めない設定です。</p>
         </article>
       </div>
@@ -1075,10 +1103,15 @@ function renderConfirm() {
       <span>${escapeHtml(state.agentOutput.approval.reason || "承認対象の操作はありません。")}</span>
       <span class="subtle">教師が内容を確認し、投稿ボタンを押すまで Classroom への投稿は実行されません。</span>
     </section>
+    ${
+      state.postMessage
+        ? renderAlert(state.postMessageTone, state.postMessage)
+        : ""
+    }
     <section class="action-row">
       <button class="button primary" data-action="approve-post" ${state.posted || !canPost ? "disabled" : ""}>投稿する</button>
       <button class="button" data-view="review">文面を修正</button>
-      ${state.posted ? '<span class="badge success">投稿済みとして記録しました</span>' : ""}
+      ${state.posted ? '<span class="badge success">投稿完了</span>' : ""}
       ${!canPost ? '<span class="badge warning">投稿内容を確認してください</span>' : ""}
     </section>
   `;
@@ -1098,24 +1131,264 @@ function validateEditableFields(updateState = true) {
   return Object.keys(errors).length === 0;
 }
 
-function applyScenario(mode) {
-  state.scenario = mode;
-  if (mode === scenarioModes.partial) {
-    state.agentOutput = normalizeAgentOutput(rawAgentOutputs.partial);
-  } else if (mode === scenarioModes.error) {
-    state.agentOutput = normalizeAgentOutput(rawAgentOutputs.error);
-  } else {
-    state.agentOutput = normalizeAgentOutput(rawAgentOutputs.success);
+async function apiFetchJson(path, options = {}) {
+  const headers = {
+    Accept: "application/json",
+    ...(options.headers ?? {}),
+  };
+  if (options.body && !headers["Content-Type"]) {
+    headers["Content-Type"] = "application/json";
   }
-  resetEditableValues();
+  const response = await fetch(path, {
+    ...options,
+    headers,
+  });
+  const text = await response.text();
+  let payload = {};
+  if (text) {
+    try {
+      payload = JSON.parse(text);
+    } catch (error) {
+      payload = {};
+    }
+  }
+  if (!response.ok) {
+    const message =
+      payload?.error?.message ??
+      payload?.summary?.shortSummary ??
+      `HTTP ${response.status}`;
+    const apiError = new Error(message);
+    apiError.status = response.status;
+    apiError.payload = payload;
+    throw apiError;
+  }
+  return payload;
+}
+
+async function connectGoogle() {
+  setLoading("Google Classroom のコース一覧を取得しています。");
+  try {
+    const payload = await apiFetchJson("/api/live/courses");
+    state.courses = Array.isArray(payload.items) ? payload.items : [];
+    state.isLoggedIn = true;
+    state.view = "courses";
+    state.assignmentMetrics = {};
+    state.assignments = [];
+    state.selectedCourseId = state.courses[0]?.courseId ?? "";
+    state.selectedAssignmentId = "";
+    if (state.courses.length === 0) {
+      setEmptyState({
+        title: "表示できるコースがありません",
+        shortSummary: "Google Classroom から対象コースを取得できませんでした。",
+        recommendedAction: "コースの教師権限と公開状態を確認してください。",
+        view: "courses",
+      });
+      render();
+      return;
+    }
+    await loadCourseContext(state.selectedCourseId, { nextView: "dashboard" });
+  } catch (error) {
+    handleRequestFailure(error, {
+      title: "コース一覧の取得に失敗しました",
+      recommendedAction: "credentials.json、token.json、Google Classroom の権限設定を確認してください。",
+      loggedOut: true,
+      view: "login",
+    });
+  }
+}
+
+async function loadCourseContext(courseId, { nextView = "dashboard" } = {}) {
+  if (!courseId) {
+    setEmptyState({
+      title: "コースが選択されていません",
+      shortSummary: "分析対象のコースを選択してください。",
+      recommendedAction: "コース一覧から対象コースを選び直してください。",
+      view: "courses",
+    });
+    render();
+    return;
+  }
+
+  state.selectedCourseId = courseId;
+  state.assignments = [];
+  state.assignmentMetrics = {};
+  state.selectedAssignmentId = "";
+  setLoading("課題一覧を取得しています。");
+  try {
+    const payload = await apiFetchJson(
+      `/api/live/coursework?courseId=${encodeURIComponent(courseId)}`,
+    );
+    state.assignments = normalizedAssignments(payload.items);
+    state.selectedAssignmentId = state.assignments[0]?.courseWorkId ?? "";
+    if (state.assignments.length === 0) {
+      setEmptyState({
+        title: "公開済み課題がありません",
+        shortSummary: "このコースには取得対象の課題がありません。",
+        recommendedAction: "PUBLISHED 状態の課題を確認するか、別のコースを選択してください。",
+        view: "assignment",
+      });
+      render();
+      return;
+    }
+    await loadSubmissionAnalysis(courseId, state.selectedAssignmentId, {
+      nextView,
+    });
+  } catch (error) {
+    handleRequestFailure(error, {
+      title: "課題一覧の取得に失敗しました",
+      recommendedAction: "Classroom の課題権限と対象コースIDを確認してください。",
+      view: "courses",
+    });
+  }
+}
+
+async function loadSubmissionAnalysis(
+  courseId,
+  courseWorkId,
+  { nextView = "assignment" } = {},
+) {
+  if (!courseId || !courseWorkId) {
+    setEmptyState({
+      title: "課題が選択されていません",
+      shortSummary: "提出状況を分析する課題を選択してください。",
+      recommendedAction: "課題一覧から対象課題を選び直してください。",
+      view: "assignment",
+    });
+    render();
+    return;
+  }
+
+  state.selectedCourseId = courseId;
+  state.selectedAssignmentId = courseWorkId;
+  setLoading("提出状況を取得して分析しています。");
+  try {
+    const payload = await apiFetchJson(
+      `/api/live/submission-analysis?courseId=${encodeURIComponent(courseId)}&courseWorkId=${encodeURIComponent(courseWorkId)}`,
+    );
+    applyAgentOutput(payload, { view: nextView });
+    if (state.agentOutput.status !== "error") {
+      state.assignmentMetrics[courseWorkId] = deriveAssignmentMetrics(
+        state.agentOutput,
+      );
+    }
+    render();
+  } catch (error) {
+    handleRequestFailure(error, {
+      title: "提出状況の取得に失敗しました",
+      recommendedAction: "Google Classroom の提出状況取得権限を確認してください。",
+      view: "assignment",
+    });
+  }
+}
+
+async function loadReminderGeneration(
+  courseId,
+  courseWorkId,
+  { nextView = "review" } = {},
+) {
+  if (!courseId || !courseWorkId) {
+    setEmptyState({
+      title: "課題が選択されていません",
+      shortSummary: "リマインド案を生成する課題を選択してください。",
+      recommendedAction: "課題一覧から対象課題を選び直してください。",
+      view: "assignment",
+      agentTaskType: "REMINDER_GENERATION",
+    });
+    render();
+    return;
+  }
+
+  setLoading("リマインド案を生成しています。");
+  try {
+    const payload = await apiFetchJson(
+      `/api/live/reminder-generation?courseId=${encodeURIComponent(courseId)}&courseWorkId=${encodeURIComponent(courseWorkId)}`,
+    );
+    applyAgentOutput(payload, { view: nextView });
+    render();
+  } catch (error) {
+    handleRequestFailure(error, {
+      title: "リマインド案の生成に失敗しました",
+      recommendedAction: "提出状況を再取得したうえで、もう一度実行してください。",
+      view: "review",
+      agentTaskType: "REMINDER_GENERATION",
+    });
+  }
+}
+
+async function retryCurrentView() {
+  if (!state.isLoggedIn) {
+    await connectGoogle();
+    return;
+  }
+  if (!state.selectedCourseId) {
+    await connectGoogle();
+    return;
+  }
+  if (state.view === "courses") {
+    await loadCourseContext(state.selectedCourseId, { nextView: "dashboard" });
+    return;
+  }
+  if (!state.selectedAssignmentId) {
+    await loadCourseContext(state.selectedCourseId, { nextView: "assignment" });
+    return;
+  }
+  if (state.agentOutput.agentTaskType === "REMINDER_GENERATION") {
+    await loadReminderGeneration(state.selectedCourseId, state.selectedAssignmentId, {
+      nextView: state.view === "confirm" ? "confirm" : "review",
+    });
+    return;
+  }
+  await loadSubmissionAnalysis(state.selectedCourseId, state.selectedAssignmentId, {
+    nextView: state.view === "courses" ? "dashboard" : state.view,
+  });
+}
+
+async function postReminder() {
+  if (!validateEditableFields(true)) {
+    state.view = "review";
+    render();
+    return;
+  }
+  const reminder = buildEditedReminderPayload();
+  if (!reminder) {
+    state.postMessage = "投稿対象の reminder payload がありません。";
+    state.postMessageTone = "danger";
+    render();
+    return;
+  }
+
+  setLoading("Classroom に投稿しています。");
+  try {
+    const payload = await apiFetchJson("/api/live/post-reminder", {
+      method: "POST",
+      body: JSON.stringify({
+        approved: true,
+        classroomReminder: reminder,
+      }),
+    });
+    state.scenario = scenarioModes.ready;
+    clearLoading();
+    state.posted = true;
+    state.postMessage = payload.announcementId
+      ? `Classroom に投稿しました。announcementId=${payload.announcementId}`
+      : "Classroom に投稿しました。";
+    state.postMessageTone = "success";
+    render();
+  } catch (error) {
+    const apiError = extractApiError(error);
+    state.scenario = scenarioModes.ready;
+    clearLoading();
+    state.posted = false;
+    state.postMessage = apiError.message;
+    state.postMessageTone = "danger";
+    render();
+  }
 }
 
 function bindEvents() {
   document.querySelectorAll("[data-action='login']").forEach((button) => {
     button.addEventListener("click", () => {
-      state.isLoggedIn = true;
-      state.view = "courses";
-      render();
+      void connectGoogle();
     });
   });
 
@@ -1123,7 +1396,15 @@ function bindEvents() {
     button.addEventListener("click", () => {
       state.isLoggedIn = false;
       state.view = "login";
-      applyScenario("ready");
+      state.scenario = scenarioModes.ready;
+      state.loadingMessage = "";
+      state.courses = [];
+      state.assignments = [];
+      state.assignmentMetrics = {};
+      state.selectedCourseId = "";
+      state.selectedAssignmentId = "";
+      state.agentOutput = normalizeAgentOutput(buildPlaceholderOutput());
+      resetEditableValues();
       render();
     });
   });
@@ -1139,40 +1420,32 @@ function bindEvents() {
     });
   });
 
-  document.querySelectorAll("[data-scenario]").forEach((button) => {
-    button.addEventListener("click", () => {
-      applyScenario(button.dataset.scenario);
-      render();
-    });
-  });
-
   document.querySelectorAll("[data-course]").forEach((button) => {
     button.addEventListener("click", () => {
-      state.selectedCourseId = button.dataset.course;
-      state.view = "dashboard";
-      render();
+      void loadCourseContext(button.dataset.course, { nextView: "dashboard" });
     });
   });
 
   document.querySelectorAll("[data-assignment]").forEach((button) => {
     button.addEventListener("click", () => {
       state.selectedAssignmentId = button.dataset.assignment;
-      render();
+      void loadSubmissionAnalysis(state.selectedCourseId, button.dataset.assignment, {
+        nextView: "assignment",
+      });
     });
   });
 
   document.querySelectorAll("[data-action='generate-reminder']").forEach((button) => {
     button.addEventListener("click", () => {
-      applyScenario("ready");
-      state.view = "review";
-      render();
+      void loadReminderGeneration(state.selectedCourseId, state.selectedAssignmentId, {
+        nextView: "review",
+      });
     });
   });
 
   document.querySelectorAll("[data-action='retry']").forEach((button) => {
     button.addEventListener("click", () => {
-      applyScenario("ready");
-      render();
+      void retryCurrentView();
     });
   });
 
@@ -1187,6 +1460,8 @@ function bindEvents() {
     field.addEventListener("input", () => {
       state.editableValues[field.dataset.field] = field.value;
       delete state.fieldErrors[field.dataset.field];
+      state.posted = false;
+      state.postMessage = "";
     });
   });
 
@@ -1203,13 +1478,7 @@ function bindEvents() {
 
   document.querySelectorAll("[data-action='approve-post']").forEach((button) => {
     button.addEventListener("click", () => {
-      if (!validateEditableFields(true)) {
-        state.view = "review";
-        render();
-        return;
-      }
-      state.posted = true;
-      render();
+      void postReminder();
     });
   });
 }
