@@ -122,6 +122,37 @@ class LiveApiTests(unittest.TestCase):
         self.assertEqual(payload["items"][0]["courseId"], "course_001")
         self.assertEqual(payload["items"][0]["studentCount"], 34)
 
+    def test_coursework_endpoint_returns_normalized_items(self) -> None:
+        fake_client = FakeCourseClient(
+            coursework=[
+                {
+                    "id": "cw_001",
+                    "courseId": "course_001",
+                    "title": "二次関数プリント",
+                    "description": "配布プリントを解いて提出",
+                    "workType": "ASSIGNMENT",
+                    "state": "PUBLISHED",
+                }
+            ]
+        )
+
+        with patch.object(
+            app_main.GoogleClassroomClient,
+            "from_oauth",
+            return_value=fake_client,
+        ):
+            status_code, payload = self._request_json(
+                "/api/live/coursework?courseId=course_001"
+            )
+
+        self.assertEqual(status_code, 200)
+        self.assertEqual(
+            fake_client.list_coursework_calls,
+            [{"course_id": "course_001", "course_work_states": ["PUBLISHED"]}],
+        )
+        self.assertEqual(payload["items"][0]["courseWorkId"], "cw_001")
+        self.assertEqual(payload["items"][0]["title"], "二次関数プリント")
+
     def test_submission_analysis_endpoint_returns_contract_valid_payload(self) -> None:
         with (
             patch.object(app_main.GoogleClassroomClient, "from_oauth", return_value=object()),
@@ -158,6 +189,26 @@ class LiveApiTests(unittest.TestCase):
         self.assertEqual(payload["errors"][0]["code"], "GOOGLE_AUTH_EXPIRED")
         self.assertEqual(validate_agent_output(payload), [])
 
+    def test_submission_analysis_endpoint_returns_partial_success_payload(self) -> None:
+        _, _, partial_analysis = app_main.build_partial_sample_analysis()
+
+        with (
+            patch.object(app_main.GoogleClassroomClient, "from_oauth", return_value=object()),
+            patch.object(
+                app_main,
+                "fetch_submission_analysis",
+                return_value=partial_analysis,
+            ),
+        ):
+            status_code, payload = self._request_json(
+                "/api/live/submission-analysis?courseId=course_001&courseWorkId=cw_001"
+            )
+
+        self.assertEqual(status_code, 200)
+        self.assertEqual(payload["status"], "partial_success")
+        self.assertEqual(payload["errors"][0]["code"], "PARTIAL_CLASSROOM_DATA")
+        self.assertEqual(validate_agent_output(payload), [])
+
     def test_reminder_generation_endpoint_returns_contract_valid_payload(self) -> None:
         with (
             patch.object(app_main.GoogleClassroomClient, "from_oauth", return_value=object()),
@@ -173,6 +224,27 @@ class LiveApiTests(unittest.TestCase):
 
         self.assertEqual(status_code, 200)
         self.assertEqual(payload["agentTaskType"], "REMINDER_GENERATION")
+        self.assertTrue(payload["approval"]["required"])
+        self.assertEqual(validate_agent_output(payload), [])
+
+    def test_reminder_generation_endpoint_returns_partial_success_payload(self) -> None:
+        _, _, partial_analysis = app_main.build_partial_sample_analysis()
+
+        with (
+            patch.object(app_main.GoogleClassroomClient, "from_oauth", return_value=object()),
+            patch.object(
+                app_main,
+                "fetch_submission_analysis",
+                return_value=partial_analysis,
+            ),
+        ):
+            status_code, payload = self._request_json(
+                "/api/live/reminder-generation?courseId=course_001&courseWorkId=cw_001"
+            )
+
+        self.assertEqual(status_code, 200)
+        self.assertEqual(payload["status"], "partial_success")
+        self.assertEqual(payload["errors"][0]["code"], "PARTIAL_CLASSROOM_DATA")
         self.assertTrue(payload["approval"]["required"])
         self.assertEqual(validate_agent_output(payload), [])
 
@@ -211,6 +283,28 @@ class LiveApiTests(unittest.TestCase):
         self.assertEqual(status_code, 500)
         self.assertEqual(payload["status"], "error")
         self.assertEqual(payload["error"]["code"], "CLASSROOM_POST_FAILED")
+        self.assertEqual(fake_post_client.created_payloads, [])
+
+    def test_post_reminder_rejects_invalid_payload_shape(self) -> None:
+        fake_post_client = FakePostClient()
+
+        with patch.object(
+            app_main,
+            "build_post_only_client",
+            return_value=fake_post_client,
+        ):
+            status_code, payload = self._request_json(
+                "/api/live/post-reminder",
+                method="POST",
+                payload={
+                    "approved": True,
+                    "classroomReminder": "invalid",
+                },
+            )
+
+        self.assertEqual(status_code, 500)
+        self.assertEqual(payload["status"], "error")
+        self.assertEqual(payload["error"]["code"], "INVALID_AGENT_OUTPUT")
         self.assertEqual(fake_post_client.created_payloads, [])
 
     def test_post_reminder_success_posts_only_after_approval(self) -> None:
