@@ -25,9 +25,28 @@ class StaticAssetTests(unittest.TestCase):
             "editableFields",
             "requiresTeacherApproval",
             "CREATE_CLASSROOM_ANNOUNCEMENT",
+            "normalizeAgentOutput",
+            "partial_success",
+            "CLASSROOM_API_PERMISSION_DENIED",
+            "data-action=\"retry\"",
+            "aria-current=\"page\"",
+            "aria-invalid=\"true\"",
         ]:
             with self.subTest(term=term):
                 self.assertIn(term, app_js)
+
+    def test_state_styles_are_available(self) -> None:
+        styles = (ROOT / "public/styles.css").read_text(encoding="utf-8")
+        for term in [
+            ".segmented",
+            ".state-panel",
+            ".empty-state",
+            ".error-item",
+            ".field-error",
+            ".skeleton",
+        ]:
+            with self.subTest(term=term):
+                self.assertIn(term, styles)
 
     def test_server_serves_public_directory(self) -> None:
         main_py = (ROOT / "main.py").read_text(encoding="utf-8")
