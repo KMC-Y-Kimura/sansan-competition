@@ -17,7 +17,7 @@ from .contract import (
     validate_agent_output,
     validate_agent_output_dict,
 )
-from .contracts import ALLOWED_AGENT_TASK_TYPES
+from .contracts import ALLOWED_AGENT_TASK_TYPES, ALLOWED_STATUSES
 from .exporters import (
     GoogleDocumentExportResult,
     MarkdownExportResult,
@@ -50,6 +50,7 @@ from .oauth import (
 __all__ = [
     "SCHEMA_VERSION",
     "ALLOWED_AGENT_TASK_TYPES",
+    "ALLOWED_STATUSES",
     "AgentTaskType",
     "GoogleClassroomClient",
     "GoogleOAuthConfig",

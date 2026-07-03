@@ -1003,7 +1003,6 @@ def remove_cache_artifacts(paths: Sequence[Path]) -> list[str]:
         removed.append(str(path))
     return removed
 
-
 def validate_common_contract(payload: dict[str, Any]) -> list[str]:
     issues = validate_agent_output_dict(payload)
 
@@ -1162,8 +1161,25 @@ def run_agent_task_contract_checks() -> CheckResult:
     return CheckResult(name="agent-contract", passed=passed, details=details)
 
 
+def is_git_ignored(repo_root: Path, path: Path) -> bool:
+    try:
+        relative_path = path.relative_to(repo_root)
+    except ValueError:
+        relative_path = path
+    completed = subprocess.run(
+        ["git", "check-ignore", "-q", "--", str(relative_path)],
+        cwd=repo_root,
+        check=False,
+    )
+    return completed.returncode == 0
+
+
 def run_repo_hygiene_check(repo_root: Path) -> CheckResult:
-    artifacts = collect_cache_artifacts(repo_root)
+    artifacts = [
+        path
+        for path in collect_cache_artifacts(repo_root)
+        if not is_git_ignored(repo_root, path)
+    ]
     if not artifacts:
         return CheckResult(name="repo-hygiene", passed=True, details=["no cache artifacts detected"])
     return CheckResult(
@@ -1171,7 +1187,6 @@ def run_repo_hygiene_check(repo_root: Path) -> CheckResult:
         passed=False,
         details=[f"remove cache artifact: {path}" for path in artifacts],
     )
-
 
 def build_report(repo_root: Path, *, apply_fixes: bool, tool_root: Path | None = None) -> AutomationReport:
     tool_root = tool_root or repo_root

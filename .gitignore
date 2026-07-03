@@ -1,6 +1,13 @@
+# Python
 __pycache__/
 *.py[cod]
 .pytest_cache/
 credentials.json
 token.json
 exports/
+
+# venv
+.venv/
+
+# 出力生成物 (mocky: Markdown/PDF)
+output/
