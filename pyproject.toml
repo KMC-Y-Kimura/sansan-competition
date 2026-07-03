@@ -14,3 +14,4 @@ dependencies = [
 
 [tool.setuptools]
 packages = ["sansan_competition"]
+py-modules = ["main"]

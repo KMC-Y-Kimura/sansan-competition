@@ -1,6 +1,27 @@
 # sansan-competition
 
 `kimu` 担当の土台として、Google Classroom の提出状況を正規化し、判定し、GUI 班へ返す構造化 JSON を生成する実装を追加しています。
+Google Classroom運用支援AIエージェントのGUIプロトタイプです。
+
+## GUIプロトタイプ
+
+```bash
+python3 main.py --port 8000
+```
+
+ブラウザで `http://127.0.0.1:8000` を開きます。
+
+現在の実装範囲:
+
+- Googleログイン画面のモック
+- コース選択
+- ダッシュボード
+- 課題詳細と提出状況表示
+- AIアウトプットJSONのカード、表、警告、編集フィールド表示
+- 出力形式選択
+- Classroom投稿前の承認画面
+
+Google OAuth、Classroom API、AI生成処理、実際のPDF/Markdown/Google Document出力は未接続です。
 
 ## PR Automation
 
@@ -67,7 +88,7 @@ Optional overrides:
 ## 実行例
 
 ```bash
-python3 main.py
+python3 main.py demo
 ```
 
 AI 入力サンプルの確認:

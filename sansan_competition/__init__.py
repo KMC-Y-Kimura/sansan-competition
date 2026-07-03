@@ -10,7 +10,7 @@ from .contract import (
     validate_agent_output,
     validate_agent_output_dict,
 )
-from .contracts import ALLOWED_AGENT_TASK_TYPES
+from .contracts import ALLOWED_AGENT_TASK_TYPES, ALLOWED_STATUSES
 from .models import AgentTaskType, Course, CourseWork, StudentSubmission
 from .normalization import (
     normalize_course,
@@ -22,6 +22,7 @@ from .normalization import (
 __all__ = [
     "SCHEMA_VERSION",
     "ALLOWED_AGENT_TASK_TYPES",
+    "ALLOWED_STATUSES",
     "AgentTaskType",
     "Course",
     "CourseWork",

@@ -1140,7 +1140,6 @@ def run_repo_hygiene_check(repo_root: Path) -> CheckResult:
         details=[f"remove cache artifact: {path}" for path in artifacts],
     )
 
-
 def build_report(repo_root: Path, *, apply_fixes: bool, tool_root: Path | None = None) -> AutomationReport:
     tool_root = tool_root or repo_root
     fixes_applied: list[str] = []
