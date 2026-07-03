@@ -18,6 +18,14 @@ from .contract import (
     validate_agent_output_dict,
 )
 from .contracts import ALLOWED_AGENT_TASK_TYPES
+from .exporters import (
+    GoogleDocumentExportResult,
+    MarkdownExportResult,
+    create_google_document_from_output,
+    extract_output_payload,
+    render_google_document_html,
+    save_markdown_output,
+)
 from .models import AgentTaskType, Course, CourseWork, StudentSubmission
 from .normalization import (
     normalize_course,
@@ -48,6 +56,8 @@ __all__ = [
     "Course",
     "CourseWork",
     "StudentSubmission",
+    "GoogleDocumentExportResult",
+    "MarkdownExportResult",
     "CLASSROOM_ANNOUNCEMENTS_SCOPE",
     "CLASSROOM_COURSES_READONLY_SCOPE",
     "CLASSROOM_COURSEWORK_STUDENTS_READONLY_SCOPE",
@@ -66,12 +76,16 @@ __all__ = [
     "build_student_name_lookup",
     "default_classroom_post_scopes",
     "default_classroom_read_scopes",
+    "create_google_document_from_output",
+    "extract_output_payload",
     "fetch_submission_analysis",
     "load_google_user_credentials",
     "normalize_course",
     "normalize_coursework",
     "normalize_submission",
     "normalize_submission_batch",
+    "render_google_document_html",
+    "save_markdown_output",
     "validate_agent_output",
     "validate_agent_output_dict",
 ]

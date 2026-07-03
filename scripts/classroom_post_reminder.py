@@ -5,6 +5,10 @@ import json
 from pathlib import Path
 import sys
 
+REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
 from sansan_competition.classroom import build_post_only_client
 from sansan_competition.oauth import GoogleOAuthConfig
 

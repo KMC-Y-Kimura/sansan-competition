@@ -14,12 +14,16 @@
   - Classroom 実データから提出分析 JSON を生成
 - [scripts/classroom_post_reminder.py](/Users/kimura/Desktop/SP活動/2年/後期/sansan-competition/scripts/classroom_post_reminder.py)
   - 承認済み `classroomReminder` の投稿
+- [scripts/export_outputs.py](/Users/kimura/Desktop/SP活動/2年/後期/sansan-competition/scripts/export_outputs.py)
+  - `outputs.markdown` の保存と `outputs.googleDocument` の Google Document 作成
+- [sansan_competition/exporters.py](/Users/kimura/Desktop/SP活動/2年/後期/sansan-competition/sansan_competition/exporters.py)
+  - 実出力の共通処理
 
 まだ入っていないもの:
 
 - Web GUI 向け OAuth ログイン画面
 - フロントエンド経由の OAuth コールバック処理
-- Docs / Drive 実出力との結合
+- PDF の実バイナリ生成
 
 一方で、`kimu` 担当のデータ処理側は、Google API の実呼び出しがなくても進められる状態です。
 
@@ -132,6 +136,26 @@ python3 scripts/classroom_post_reminder.py --input samples/reminder_generation_s
 
 `--approved` なしでは投稿しません。これは要件にある「教師承認なしに投稿しない」を満たすためです。
 
+## 6.7 Markdown を保存する
+
+```bash
+python3 scripts/export_outputs.py --input samples/submission_analysis_success.json --format markdown --output-dir exports
+```
+
+## 6.8 Google Document を作成する
+
+Drive API を使って、`outputs.googleDocument` を実 Google Document に変換できます。
+
+```bash
+python3 scripts/export_outputs.py --input samples/submission_analysis_success.json --format googleDocument
+```
+
+必要なら共有先を追加できます。
+
+```bash
+python3 scripts/export_outputs.py --input samples/submission_analysis_success.json --format googleDocument --share-email teacher@example.com
+```
+
 ## 7. このリポジトリでの次の結合ポイント
 
 `OAuth` が通ったら、次は以下の順でつなぐのが妥当です。
@@ -144,9 +168,9 @@ python3 scripts/classroom_post_reminder.py --input samples/reminder_generation_s
 
 ## 8. 判断
 
-客観的に言うと、現時点では `OAuth` / `Classroom API` は「CLI ベースの最小実装までは進んだ」が正確です。
+客観的に言うと、現時点では `OAuth` / `Classroom API` と `Markdown / Google Document の実出力` は CLI ベースで最低限の実装まで進んだ、が正確です。
 
-ただし、これはまだ `mocky` 担当の全範囲を満たしたわけではありません。Web ログイン、GUI 結合、Docs / Drive 出力連携は未完です。
+ただし、これはまだ `mocky` 担当の全範囲を満たしたわけではありません。Web ログイン、GUI 結合、PDF 実生成、異常系強化は未完です。
 
 実務上は次の整理が妥当です。
 

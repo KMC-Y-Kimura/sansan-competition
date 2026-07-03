@@ -4,6 +4,11 @@ import argparse
 from datetime import datetime
 import json
 import sys
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 from sansan_competition.classroom import GoogleClassroomClient, fetch_submission_analysis
 from sansan_competition.contract import build_submission_analysis_response
