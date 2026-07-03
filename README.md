@@ -70,6 +70,13 @@ Optional overrides:
 python3 main.py
 ```
 
+AI 入力サンプルの確認:
+
+```bash
+python3 main.py sample-ai-input-reminder
+python3 main.py sample-ai-input-weekly-report
+```
+
 ## テスト
 
 ```bash

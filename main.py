@@ -8,6 +8,7 @@ from sansan_competition import (
     AgentTaskType,
     analyze_submissions,
     build_agent_output,
+    build_ai_task_input,
     build_reminder_generation_response,
     build_submission_analysis_response,
     normalize_course,
@@ -88,7 +89,13 @@ def main(argv: list[str] | None = None) -> None:
         "command",
         nargs="?",
         default="demo",
-        choices=("demo", "sample-reminder", "sample-course-summary"),
+        choices=(
+            "demo",
+            "sample-reminder",
+            "sample-course-summary",
+            "sample-ai-input-reminder",
+            "sample-ai-input-weekly-report",
+        ),
     )
     args = parser.parse_args(argv)
 
@@ -120,6 +127,28 @@ def main(argv: list[str] | None = None) -> None:
             generated_at=analysis.generated_at,
         ).to_dict()
         print(json.dumps(payload, ensure_ascii=False))
+        return
+
+    if args.command == "sample-ai-input-reminder":
+        payload = build_ai_task_input(
+            AgentTaskType.REMINDER_GENERATION,
+            analysis,
+            output_formats=["classroomReminder", "markdown"],
+            tone="polite",
+            teacher_instruction="締切日を必ず明記してください。",
+        )
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        return
+
+    if args.command == "sample-ai-input-weekly-report":
+        payload = build_ai_task_input(
+            AgentTaskType.WEEKLY_REPORT,
+            analysis,
+            output_formats=["markdown", "pdf", "googleDocument"],
+            tone="formal",
+            teacher_instruction="事実と次のアクションを分けてください。",
+        )
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
         return
 
     payload = {

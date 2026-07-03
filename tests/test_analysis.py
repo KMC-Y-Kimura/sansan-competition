@@ -111,6 +111,45 @@ class AnalysisTests(unittest.TestCase):
         self.assertIn("studentId", detailed_first_entry)
         self.assertIn("studentName", detailed_first_entry)
 
+    def test_build_ai_task_input_for_reminder_targets_only_unsubmitted_students(self) -> None:
+        analysis = analyze_submissions(
+            self.course,
+            self.course_work,
+            self.submissions,
+            now=datetime(2026, 7, 5, 9, 0, tzinfo=JST),
+        )
+
+        payload = build_ai_task_input(
+            AgentTaskType.REMINDER_GENERATION,
+            analysis,
+            output_formats=["classroomReminder"],
+            tone="polite",
+            teacher_instruction="締切日を入れてください。",
+        )
+
+        self.assertEqual(payload["focus"]["selectionMode"], "unsubmitted_targets")
+        self.assertEqual(payload["delivery"]["outputFormats"], ["classroomReminder"])
+        self.assertEqual(payload["delivery"]["teacherInstruction"], "締切日を入れてください。")
+        self.assertEqual(payload["facts"]["targetSummary"]["targetStudentCount"], 2)
+        self.assertEqual(len(payload["facts"]["submissions"]), 2)
+        self.assertTrue(
+            all(entry["isMissing"] for entry in payload["facts"]["submissions"])
+        )
+
+    def test_build_ai_task_input_for_course_summary_uses_aggregate_only_mode(self) -> None:
+        analysis = analyze_submissions(
+            self.course,
+            self.course_work,
+            self.submissions,
+            now=datetime(2026, 7, 5, 9, 0, tzinfo=JST),
+        )
+
+        payload = build_ai_task_input(AgentTaskType.COURSE_SUMMARY, analysis)
+
+        self.assertEqual(payload["focus"]["selectionMode"], "aggregate_only")
+        self.assertEqual(payload["facts"]["submissions"], [])
+        self.assertEqual(payload["privacy"]["studentIdentifierMode"], "pseudonymized_student_ref_only")
+
 
 if __name__ == "__main__":
     unittest.main()
