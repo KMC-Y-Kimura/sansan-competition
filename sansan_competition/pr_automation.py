@@ -1009,18 +1009,21 @@ def run_command(args: Sequence[str], *, repo_root: Path) -> tuple[int, str]:
     pythonpath_parts = [str(repo_root)]
     if pythonpath:
         pythonpath_parts.append(pythonpath)
-    completed = subprocess.run(
-        list(args),
-        cwd=repo_root,
-        env={
-            **os.environ,
-            "PYTHONDONTWRITEBYTECODE": "1",
-            "PYTHONPATH": os.pathsep.join(pythonpath_parts),
-        },
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    try:
+        completed = subprocess.run(
+            list(args),
+            cwd=repo_root,
+            env={
+                **os.environ,
+                "PYTHONDONTWRITEBYTECODE": "1",
+                "PYTHONPATH": os.pathsep.join(pythonpath_parts),
+            },
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except FileNotFoundError as exc:
+        return 127, str(exc)
     output = completed.stdout.strip()
     if completed.stderr.strip():
         output = f"{output}\n{completed.stderr.strip()}".strip()
@@ -1110,8 +1113,25 @@ def run_agent_task_contract_checks() -> CheckResult:
     return CheckResult(name="agent-contract", passed=passed, details=details)
 
 
+def is_git_ignored(repo_root: Path, path: Path) -> bool:
+    try:
+        relative_path = path.relative_to(repo_root)
+    except ValueError:
+        relative_path = path
+    completed = subprocess.run(
+        ["git", "check-ignore", "-q", "--", str(relative_path)],
+        cwd=repo_root,
+        check=False,
+    )
+    return completed.returncode == 0
+
+
 def run_repo_hygiene_check(repo_root: Path) -> CheckResult:
-    artifacts = collect_cache_artifacts(repo_root)
+    artifacts = [
+        path
+        for path in collect_cache_artifacts(repo_root)
+        if not is_git_ignored(repo_root, path)
+    ]
     if not artifacts:
         return CheckResult(name="repo-hygiene", passed=True, details=["no cache artifacts detected"])
     return CheckResult(
@@ -1119,7 +1139,6 @@ def run_repo_hygiene_check(repo_root: Path) -> CheckResult:
         passed=False,
         details=[f"remove cache artifact: {path}" for path in artifacts],
     )
-
 
 def build_report(repo_root: Path, *, apply_fixes: bool, tool_root: Path | None = None) -> AutomationReport:
     tool_root = tool_root or repo_root
@@ -1134,6 +1153,12 @@ def build_report(repo_root: Path, *, apply_fixes: bool, tool_root: Path | None =
         run_cli_contract_checks(tool_root),
         run_agent_task_contract_checks(),
     ]
+
+    if apply_fixes:
+        cache_artifacts = collect_cache_artifacts(repo_root)
+        removed = remove_cache_artifacts(cache_artifacts)
+        fixes_applied.extend(f"removed {path}" for path in removed)
+
     return AutomationReport(fixes_applied=fixes_applied, checks=checks)
 
 

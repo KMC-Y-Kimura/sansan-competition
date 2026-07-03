@@ -3,8 +3,11 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from sansan_competition.pr_automation import (
+    CheckResult,
+    build_report,
     collect_cache_artifacts,
     remove_cache_artifacts,
     run_cli_contract_checks,
@@ -66,6 +69,46 @@ class PrAutomationTests(unittest.TestCase):
 
             self.assertTrue(result.passed)
             self.assertTrue(any("help output valid" in detail for detail in result.details))
+
+    def test_build_report_apply_fixes_cleans_post_check_cache(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            cache_dir = root / "__pycache__"
+            cache_dir.mkdir()
+            (cache_dir / "module.cpython-314.pyc").write_bytes(b"cache")
+
+            def fake_pytest(repo_root: Path) -> CheckResult:
+                recreated = repo_root / "__pycache__"
+                recreated.mkdir(exist_ok=True)
+                (recreated / "new.cpython-314.pyc").write_bytes(b"cache")
+                return CheckResult(name="pytest", passed=True, details=["ok"])
+
+            with (
+                patch(
+                    "sansan_competition.pr_automation.run_pytest",
+                    side_effect=fake_pytest,
+                ),
+                patch(
+                    "sansan_competition.pr_automation.run_cli_contract_checks",
+                    return_value=CheckResult(
+                        name="cli-contract",
+                        passed=True,
+                        details=["ok"],
+                    ),
+                ),
+                patch(
+                    "sansan_competition.pr_automation.run_agent_task_contract_checks",
+                    return_value=CheckResult(
+                        name="agent-contract",
+                        passed=True,
+                        details=["ok"],
+                    ),
+                ),
+            ):
+                report = build_report(root, apply_fixes=True)
+
+            self.assertTrue(report.fixes_applied)
+            self.assertFalse(cache_dir.exists())
 
 
 if __name__ == "__main__":
