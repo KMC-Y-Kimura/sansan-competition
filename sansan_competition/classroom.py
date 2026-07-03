@@ -45,7 +45,7 @@ class GoogleClassroomClient:
         return cls(service)
 
     def get_course(self, course_id: str) -> dict[str, Any]:
-        return self._service.courses().get(courseId=course_id).execute()
+        return self._service.courses().get(id=course_id).execute()
 
     def list_courses(
         self,
