@@ -18,6 +18,11 @@ from .google_auth import (
     WRITE_SCOPES,
 )
 from .classroom_client import ClassroomClient, MockClassroomClient
+from .google_api import (
+    GoogleAuthProvider,
+    GoogleClassroomClient,
+    GoogleDocsClient,
+)
 from .renderers import (
     MockGoogleDocsClient,
     render_google_document,
@@ -42,6 +47,9 @@ __all__ = [
     "Scopes",
     "ClassroomClient",
     "MockClassroomClient",
+    "GoogleAuthProvider",
+    "GoogleClassroomClient",
+    "GoogleDocsClient",
     "MockGoogleDocsClient",
     "render_google_document",
     "render_markdown",
