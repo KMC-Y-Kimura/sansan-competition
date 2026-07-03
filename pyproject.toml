@@ -12,11 +12,14 @@ dependencies = [
     "reportlab>=4.0",
 ]
 
+# 実Google API接続に必要。モック/オフラインテストには不要。
+# 有効化: uv sync --extra google
 [project.optional-dependencies]
 google = [
-    "google-api-python-client",
+    "google-api-python-client>=2.100",
+    "google-auth>=2.30",
     "google-auth-httplib2",
-    "google-auth-oauthlib",
+    "google-auth-oauthlib>=1.2",
 ]
 [tool.setuptools]
 packages = ["sansan_competition"]
