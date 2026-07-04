@@ -448,6 +448,9 @@ class ClassroomPrototypeHandler(http.server.SimpleHTTPRequestHandler):
 
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
+        if self._is_oauth_callback_request(parsed):
+            self._handle_oauth_callback(parsed)
+            return
         if parsed.path == "/api/live/oauth/check":
             self._handle_oauth_check(parsed)
             return
@@ -756,7 +759,7 @@ class ClassroomPrototypeHandler(http.server.SimpleHTTPRequestHandler):
                 },
             )
         except GoogleOAuthAuthorizationRequiredError:
-            redirect_uri = f"{self._server_base_url()}{OAUTH_CALLBACK_PATH}"
+            redirect_uri = self._oauth_redirect_uri()
             auth_request = start_google_oauth_authorization(
                 scopes,
                 redirect_uri=redirect_uri,
@@ -871,6 +874,7 @@ class ClassroomPrototypeHandler(http.server.SimpleHTTPRequestHandler):
                     detail=description,
                 ),
             )
+            self.log_error("OAuth callback denied: %s", description)
             self._send_oauth_callback_page(
                 title="Google Classroom への接続に失敗しました",
                 message=description,
@@ -891,6 +895,10 @@ class ClassroomPrototypeHandler(http.server.SimpleHTTPRequestHandler):
                 fallback_code=ErrorCode.GOOGLE_AUTH_EXPIRED,
             )
             self._update_oauth_session_error(state, error)
+            self.log_error(
+                "OAuth callback failed: %s",
+                getattr(error, "detail", None) or error.message,
+            )
             self._send_oauth_callback_page(
                 title="Google Classroom への接続に失敗しました",
                 message=error.message,
@@ -1016,6 +1024,22 @@ class ClassroomPrototypeHandler(http.server.SimpleHTTPRequestHandler):
 
     def _absolute_request_url(self) -> str:
         return f"{self._server_base_url()}{self.path}"
+
+    def _oauth_redirect_uri(self) -> str:
+        _, server_port = self.server.server_address[:2]
+        return f"http://localhost:{server_port}"
+
+    def _is_oauth_callback_request(self, parsed: Any) -> bool:
+        if parsed.path == OAUTH_CALLBACK_PATH:
+            return True
+        if parsed.path not in ("", "/"):
+            return False
+        query = parse_qs(parsed.query)
+        has_state = any(value.strip() for value in query.get("state", []))
+        has_result = any(value.strip() for value in query.get("code", [])) or any(
+            value.strip() for value in query.get("error", [])
+        )
+        return has_state and has_result
 
 
 def serve_gui(host: str, port: int) -> None:

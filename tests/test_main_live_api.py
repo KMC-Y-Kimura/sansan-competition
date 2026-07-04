@@ -310,7 +310,7 @@ class LiveApiTests(unittest.TestCase):
             app_main.OAUTH_SESSIONS["oauth-state-123"] = {
                 "createdAt": 9999999999.0,
                 "intent": "read",
-                "redirectUri": f"{self.base_url}/oauth/google/callback",
+                "redirectUri": "http://localhost:8000",
                 "scopes": app_main.OAUTH_INTENT_SCOPES["read"],
                 "status": "pending",
             }
@@ -321,7 +321,7 @@ class LiveApiTests(unittest.TestCase):
             return_value=object(),
         ) as complete_auth:
             status_code, body = self._request_raw(
-                "/oauth/google/callback?state=oauth-state-123&code=example"
+                "/?state=oauth-state-123&code=example"
             )
 
         self.assertEqual(status_code, 200)
