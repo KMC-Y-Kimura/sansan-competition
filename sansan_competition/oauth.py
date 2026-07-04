@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 from contextlib import contextmanager
 import os
 from dataclasses import dataclass
@@ -23,6 +24,8 @@ DRIVE_FILE_SCOPE = "https://www.googleapis.com/auth/drive.file"
 DOCUMENTS_SCOPE = "https://www.googleapis.com/auth/documents"
 GOOGLE_OAUTH_CONFIG_DIR_ENV = "SANSAN_GOOGLE_OAUTH_CONFIG_DIR"
 GOOGLE_OAUTH_CLIENT_FILE_ENV = "SANSAN_GOOGLE_OAUTH_CLIENT_FILE"
+GOOGLE_OAUTH_CLIENT_JSON_ENV = "SANSAN_GOOGLE_OAUTH_CLIENT_JSON"
+GOOGLE_OAUTH_CLIENT_JSON_B64_ENV = "SANSAN_GOOGLE_OAUTH_CLIENT_JSON_B64"
 GOOGLE_OAUTH_TOKEN_FILE_ENV = "SANSAN_GOOGLE_OAUTH_TOKEN_FILE"
 GOOGLE_OAUTH_CONFIG_DIR_NAME = "sansan-competition"
 GOOGLE_OAUTH_CLIENT_FILENAME = "credentials.json"
@@ -110,17 +113,17 @@ def inspect_google_oauth_client(
     config: GoogleOAuthConfig | None = None,
 ) -> GoogleOAuthClientInfo:
     resolved_config = config or GoogleOAuthConfig()
-    path = resolved_config.credentials_path
-    if not path.exists():
+    payload_with_source = _load_google_oauth_payload_from_any_source(resolved_config)
+    if payload_with_source is None:
         return GoogleOAuthClientInfo(
-            path=path,
+            path=resolved_config.credentials_path,
             exists=False,
             client_type=None,
             client_id=None,
             redirect_uris=(),
         )
 
-    payload = _load_google_oauth_payload(path)
+    payload, path = payload_with_source
     client_type, client_section = _extract_google_oauth_client_section(payload)
     redirect_uris = ()
     if client_type == "web":
@@ -218,11 +221,7 @@ def load_google_user_credentials(
         raise ValueError("At least one OAuth scope is required.")
 
     Request, Credentials, InstalledAppFlow = _import_google_clients()
-
-    if not resolved_config.credentials_path.exists():
-        raise FileNotFoundError(
-            f"OAuth client file not found: {resolved_config.credentials_path}"
-        )
+    payload, _ = _require_google_oauth_payload(resolved_config)
 
     creds = None
     if resolved_config.token_path.exists():
@@ -245,10 +244,7 @@ def load_google_user_credentials(
                     "Google OAuth authorization is required. Start it from the GUI "
                     "or run the CLI OAuth setup flow."
                 )
-            flow = InstalledAppFlow.from_client_secrets_file(
-                str(resolved_config.credentials_path),
-                normalized_scopes,
-            )
+            flow = InstalledAppFlow.from_client_config(payload, normalized_scopes)
             creds = _run_local_server_relaxing_scope_changes(
                 flow,
                 port=resolved_config.local_server_port,
@@ -273,16 +269,8 @@ def start_google_oauth_authorization(
         raise ValueError("At least one OAuth scope is required.")
 
     _, _, InstalledAppFlow = _import_google_clients()
-
-    if not resolved_config.credentials_path.exists():
-        raise FileNotFoundError(
-            f"OAuth client file not found: {resolved_config.credentials_path}"
-        )
-
-    flow = InstalledAppFlow.from_client_secrets_file(
-        str(resolved_config.credentials_path),
-        normalized_scopes,
-    )
+    payload, _ = _require_google_oauth_payload(resolved_config)
+    flow = InstalledAppFlow.from_client_config(payload, normalized_scopes)
     flow.redirect_uri = redirect_uri
     authorization_url, state = flow.authorization_url(
         access_type="offline",
@@ -315,17 +303,8 @@ def complete_google_oauth_authorization(
         raise ValueError("At least one OAuth scope is required.")
 
     _, _, InstalledAppFlow = _import_google_clients()
-
-    if not resolved_config.credentials_path.exists():
-        raise FileNotFoundError(
-            f"OAuth client file not found: {resolved_config.credentials_path}"
-        )
-
-    flow = InstalledAppFlow.from_client_secrets_file(
-        str(resolved_config.credentials_path),
-        normalized_scopes,
-        state=state,
-    )
+    payload, _ = _require_google_oauth_payload(resolved_config)
+    flow = InstalledAppFlow.from_client_config(payload, normalized_scopes, state=state)
     flow.redirect_uri = redirect_uri
     if code_verifier is not None:
         flow.code_verifier = code_verifier
@@ -403,16 +382,79 @@ def _resolve_google_oauth_token_path(
 
 def _load_google_oauth_payload(path: Path) -> dict[str, Any]:
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
+        return _parse_google_oauth_payload_content(
+            path.read_text(encoding="utf-8"),
+            source=str(path),
+        )
+    except OSError as exc:
         raise GoogleOAuthConfigurationError(
             f"OAuth client JSON を読み取れませんでした: {path}"
         ) from exc
+
+
+def _parse_google_oauth_payload_content(content: str, *, source: str) -> dict[str, Any]:
+    try:
+        payload = json.loads(content)
+    except json.JSONDecodeError as exc:
+        raise GoogleOAuthConfigurationError(
+            f"OAuth client JSON を読み取れませんでした: {source}"
+        ) from exc
     if not isinstance(payload, dict):
         raise GoogleOAuthConfigurationError(
-            f"OAuth client JSON はオブジェクトである必要があります: {path}"
+            f"OAuth client JSON はオブジェクトである必要があります: {source}"
         )
     return payload
+
+
+def _load_google_oauth_payload_from_env() -> tuple[dict[str, Any], Path] | None:
+    encoded = os.environ.get(GOOGLE_OAUTH_CLIENT_JSON_B64_ENV, "").strip()
+    if encoded:
+        try:
+            decoded = base64.b64decode(encoded).decode("utf-8")
+        except (ValueError, UnicodeDecodeError) as exc:
+            raise GoogleOAuthConfigurationError(
+                f"{GOOGLE_OAUTH_CLIENT_JSON_B64_ENV} を base64 として読み取れませんでした。"
+            ) from exc
+        return (
+            _parse_google_oauth_payload_content(
+                decoded,
+                source=GOOGLE_OAUTH_CLIENT_JSON_B64_ENV,
+            ),
+            Path(f"<env:{GOOGLE_OAUTH_CLIENT_JSON_B64_ENV}>"),
+        )
+
+    raw = os.environ.get(GOOGLE_OAUTH_CLIENT_JSON_ENV, "").strip()
+    if raw:
+        return (
+            _parse_google_oauth_payload_content(
+                raw,
+                source=GOOGLE_OAUTH_CLIENT_JSON_ENV,
+            ),
+            Path(f"<env:{GOOGLE_OAUTH_CLIENT_JSON_ENV}>"),
+        )
+    return None
+
+
+def _load_google_oauth_payload_from_any_source(
+    config: GoogleOAuthConfig,
+) -> tuple[dict[str, Any], Path] | None:
+    payload_from_env = _load_google_oauth_payload_from_env()
+    if payload_from_env is not None:
+        return payload_from_env
+
+    path = config.credentials_path
+    if not path.exists():
+        return None
+    return _load_google_oauth_payload(path), path
+
+
+def _require_google_oauth_payload(
+    config: GoogleOAuthConfig,
+) -> tuple[dict[str, Any], Path]:
+    payload_with_source = _load_google_oauth_payload_from_any_source(config)
+    if payload_with_source is None:
+        raise FileNotFoundError(f"OAuth client file not found: {config.credentials_path}")
+    return payload_with_source
 
 
 def _write_google_oauth_token(path: Path, content: str) -> None:

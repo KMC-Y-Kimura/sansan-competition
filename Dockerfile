@@ -9,6 +9,8 @@ WORKDIR /app
 RUN pip install --no-cache-dir uv
 
 COPY pyproject.toml uv.lock .python-version ./
+COPY README.md main.py ./
+COPY sansan_competition ./sansan_competition
 RUN uv sync --frozen --extra google
 
 COPY . .

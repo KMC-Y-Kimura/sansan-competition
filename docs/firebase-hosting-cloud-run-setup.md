@@ -31,12 +31,13 @@
 2. Cloud Run Admin API を有効化する
 3. Cloud Build API を有効化する
 4. Artifact Registry API を有効化する
+5. Cloud Functions API を有効化する
 
 CLI からまとめて有効化する場合:
 
 ```bash
 gcloud config set project YOUR_PROJECT_ID
-gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com
+gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com cloudfunctions.googleapis.com
 ```
 
 ## デプロイ
@@ -61,6 +62,47 @@ PROJECT_ID=YOUR_PROJECT_ID ./scripts/deploy_firebase_cloud_run.sh
 PROJECT_ID=YOUR_PROJECT_ID REGION=asia-northeast1 SERVICE_ID=sansan-competition ./scripts/deploy_firebase_cloud_run.sh
 ```
 
+### 無料枠を超えにくくする既定値
+
+`scripts/deploy_firebase_cloud_run.sh` は、教師1人が使う低トラフィック前提で次を既定にしています。
+
+- `CPU=1`
+- `MEMORY=512Mi`
+- `CONCURRENCY=20`
+- `MIN_INSTANCES=0`
+- `MAX_INSTANCES=1`
+- `TIMEOUT=60`
+
+意味は次のとおりです。
+
+- `MIN_INSTANCES=0`: アイドル時に常駐課金を避ける
+- `MAX_INSTANCES=1`: service-level / revision-level の両方で横方向に増殖しないようにする
+- `CPU=1` / `MEMORY=512Mi`: 必要最小限に寄せる
+- `CONCURRENCY=20`: 少人数アクセスでインスタンス数を増やしにくくする
+
+必要なら環境変数で上書きできます。
+
+```bash
+PROJECT_ID=YOUR_PROJECT_ID MAX_INSTANCES=2 MEMORY=1Gi ./scripts/deploy_firebase_cloud_run.sh
+```
+
+## 予算管理
+
+重要なのは、Cloud Billing の `Budget` は通常は「通知」であって「強制停止」ではない、という点です。
+
+最低限、次を設定してください。
+
+1. Cloud Billing の `Budgets & alerts` で少額予算を作る
+2. 通知閾値を `50% / 90% / 100%` にする
+3. 通知先メールに自分を追加する
+
+初期値の実務上の目安:
+
+- まずは `100円` から始める
+- 問題なければ `300円` などへ調整する
+
+このプロトでは、予算通知に加えて `MAX_INSTANCES=1` を維持するのが現実的な安全策です。
+
 ## OAuth client に登録する redirect URI
 
 Web application OAuth client の Authorized redirect URI に次を追加してください。
@@ -73,6 +115,30 @@ https://YOUR_SITE_ID.web.app/oauth/google/callback
 
 ```text
 https://your-domain.example.com/oauth/google/callback
+```
+
+## Cloud Run 上で OAuth client JSON を永続化する
+
+Cloud Run コンテナ内に GUI からアップロードした `credentials.json` は、インスタンス再作成で消えます。公開環境では環境変数で持たせてください。
+
+この repo は次のどちらかを読めます。
+
+- `SANSAN_GOOGLE_OAUTH_CLIENT_JSON_B64`
+- `SANSAN_GOOGLE_OAUTH_CLIENT_JSON`
+
+実務上は base64 の方が安全です。macOS / Linux なら次で設定できます。
+
+```bash
+CLIENT_JSON_B64="$(base64 < /absolute/path/to/client_secret_xxx.json | tr -d '\n')"
+gcloud run services update sansan-competition \
+  --region asia-northeast1 \
+  --update-env-vars "SANSAN_GOOGLE_OAUTH_CLIENT_JSON_B64=${CLIENT_JSON_B64}"
+```
+
+この前に、Google Cloud Console 側で Authorized redirect URI に次を追加し、JSON を再ダウンロードしてください。
+
+```text
+https://YOUR_SITE_ID.web.app/oauth/google/callback
 ```
 
 ## 注意

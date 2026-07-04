@@ -413,6 +413,70 @@ class LiveApiTests(unittest.TestCase):
         self.assertEqual(payload["status"], "configuration_required")
         self.assertIn("Web application", payload["recommendedAction"])
 
+    def test_oauth_config_prefers_forwarded_host_for_redirect_uri(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with patch.dict(
+                os.environ,
+                {
+                    "SANSAN_GOOGLE_OAUTH_CONFIG_DIR": temp_dir,
+                    "SANSAN_GOOGLE_OAUTH_CLIENT_FILE": str(Path(temp_dir) / "credentials.json"),
+                    "SANSAN_GOOGLE_OAUTH_TOKEN_FILE": str(Path(temp_dir) / "token.json"),
+                },
+                clear=False,
+            ):
+                status_code, payload = self._request_json(
+                    "/api/live/oauth/config",
+                    headers={
+                        "Host": "fh-example---service-a.run.app",
+                        "X-Forwarded-Proto": "https",
+                        "X-Forwarded-Host": "classroom-ai-kmc.web.app",
+                    },
+                )
+
+        self.assertEqual(status_code, 200)
+        self.assertEqual(
+            payload["redirectUri"],
+            "https://classroom-ai-kmc.web.app/oauth/google/callback",
+        )
+        self.assertEqual(payload["serverBaseUrl"], "https://classroom-ai-kmc.web.app")
+
+    def test_oauth_start_prefers_forwarded_host_for_redirect_uri(self) -> None:
+        auth_request = types.SimpleNamespace(
+            authorization_url="https://accounts.example.test/auth",
+            state="oauth-state-123",
+            code_verifier="verifier-123",
+            scopes=app_main.OAUTH_INTENT_SCOPES["read"],
+        )
+        with patch.object(
+            app_main,
+            "validate_google_oauth_client_for_redirect_uri",
+            return_value=None,
+        ), patch.object(
+            app_main,
+            "load_google_user_credentials",
+            side_effect=app_main.GoogleOAuthAuthorizationRequiredError("required"),
+        ), patch.object(
+            app_main,
+            "start_google_oauth_authorization",
+            return_value=auth_request,
+        ):
+            status_code, payload = self._request_json(
+                "/api/live/oauth/start?intent=read",
+                headers={
+                    "Host": "fh-example---service-a.run.app",
+                    "X-Forwarded-Proto": "https",
+                    "X-Forwarded-Host": "classroom-ai-kmc.web.app",
+                },
+            )
+
+        self.assertEqual(status_code, 200)
+        self.assertEqual(payload["status"], "authorization_required")
+        with app_main.OAUTH_SESSIONS_LOCK:
+            self.assertEqual(
+                app_main.OAUTH_SESSIONS["oauth-state-123"]["redirectUri"],
+                "https://classroom-ai-kmc.web.app/oauth/google/callback",
+            )
+
     def test_oauth_status_returns_pending_session(self) -> None:
         with app_main.OAUTH_SESSIONS_LOCK:
             app_main.OAUTH_SESSIONS["oauth-state-123"] = {

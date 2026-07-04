@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 import os
 import sys
@@ -14,12 +15,15 @@ from sansan_competition.oauth import (
     CLASSROOM_COURSES_READONLY_SCOPE,
     CLASSROOM_COURSEWORK_STUDENTS_READONLY_SCOPE,
     CLASSROOM_STUDENT_SUBMISSIONS_STUDENTS_READONLY_SCOPE,
+    GOOGLE_OAUTH_CLIENT_JSON_B64_ENV,
+    GOOGLE_OAUTH_CLIENT_JSON_ENV,
     GoogleOAuthConfig,
     GoogleOAuthAuthorizationRequiredError,
     GoogleOAuthConfigurationError,
     clear_google_oauth_token,
     complete_google_oauth_authorization,
     default_google_oauth_client_path,
+    inspect_google_oauth_client,
     load_google_user_credentials,
     save_google_oauth_client_file,
     start_google_oauth_authorization,
@@ -112,7 +116,8 @@ class OAuthTests(unittest.TestCase):
             )[1]
         )
         fake_flow_class = types.SimpleNamespace(
-            from_client_secrets_file=lambda path, scopes, state=None: fake_flow
+            from_client_secrets_file=lambda path, scopes, state=None: fake_flow,
+            from_client_config=lambda config, scopes, state=None: fake_flow,
         )
         fake_request_class = type("FakeRequest", (), {})
 
@@ -383,6 +388,43 @@ class OAuthTests(unittest.TestCase):
             clear_google_oauth_token()
             self.assertFalse(expected_token_path.exists())
 
+    def test_inspect_google_oauth_client_reads_env_payload(self) -> None:
+        self.credentials_path.unlink()
+        payload = {
+            "web": {
+                "client_id": "web-client-id",
+                "client_secret": "dummy-secret",
+                "redirect_uris": ["https://classroom-ai-kmc.web.app/oauth/google/callback"],
+            }
+        }
+        with patch.dict(
+            os.environ,
+            {
+                GOOGLE_OAUTH_CLIENT_JSON_B64_ENV: base64.b64encode(
+                    json.dumps(payload).encode("utf-8")
+                ).decode("ascii")
+            },
+            clear=False,
+        ):
+            client_info = inspect_google_oauth_client(
+                GoogleOAuthConfig(
+                    credentials_path=self.credentials_path,
+                    token_path=self.token_path,
+                )
+            )
+
+        self.assertTrue(client_info.exists)
+        self.assertEqual(client_info.client_type, "web")
+        self.assertEqual(client_info.client_id, "web-client-id")
+        self.assertEqual(
+            client_info.redirect_uris,
+            ("https://classroom-ai-kmc.web.app/oauth/google/callback",),
+        )
+        self.assertEqual(
+            client_info.path,
+            Path(f"<env:{GOOGLE_OAUTH_CLIENT_JSON_B64_ENV}>"),
+        )
+
     def test_start_google_oauth_authorization_returns_url_and_state(self) -> None:
         cached_creds = FakeCreds(
             valid=True,
@@ -426,6 +468,48 @@ class OAuthTests(unittest.TestCase):
                 }
             ],
         )
+
+    def test_start_google_oauth_authorization_reads_client_json_from_env(self) -> None:
+        self.credentials_path.unlink()
+        payload = {
+            "web": {
+                "client_id": "web-client-id",
+                "client_secret": "dummy-secret",
+                "redirect_uris": ["https://classroom-ai-kmc.web.app/oauth/google/callback"],
+            }
+        }
+        cached_creds = FakeCreds(
+            valid=True,
+            scopes=("scope.a",),
+            has_scopes_result=True,
+        )
+        refreshed_creds = FakeCreds(
+            valid=True,
+            scopes=("scope.a",),
+            has_scopes_result=True,
+        )
+        modules_patch, fake_flow, _ = self._patch_google_modules(
+            cached_creds=cached_creds,
+            refreshed_creds=refreshed_creds,
+        )
+
+        with patch.dict(
+            os.environ,
+            {GOOGLE_OAUTH_CLIENT_JSON_ENV: json.dumps(payload)},
+            clear=False,
+        ):
+            with modules_patch:
+                request = start_google_oauth_authorization(
+                    ("scope.a",),
+                    redirect_uri="https://classroom-ai-kmc.web.app/oauth/google/callback",
+                    config=GoogleOAuthConfig(
+                        credentials_path=self.credentials_path,
+                        token_path=self.token_path,
+                    ),
+                )
+
+        self.assertEqual(request.authorization_url, "https://accounts.example.test/auth")
+        self.assertEqual(fake_flow.redirect_uri, "https://classroom-ai-kmc.web.app/oauth/google/callback")
 
     def test_start_google_oauth_authorization_preserves_cached_scopes(self) -> None:
         cached_creds = FakeCreds(

@@ -8,5 +8,7 @@ __pycache__
 firebase-debug.log
 credentials.json
 token.json
+client_secret*.json
+*.env
 exports
 output

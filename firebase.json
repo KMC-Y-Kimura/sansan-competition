@@ -11,16 +11,14 @@
         "source": "/api/**",
         "run": {
           "serviceId": "sansan-competition",
-          "region": "asia-northeast1",
-          "pinTag": true
+          "region": "asia-northeast1"
         }
       },
       {
         "source": "/oauth/google/callback",
         "run": {
           "serviceId": "sansan-competition",
-          "region": "asia-northeast1",
-          "pinTag": true
+          "region": "asia-northeast1"
         }
       }
     ]

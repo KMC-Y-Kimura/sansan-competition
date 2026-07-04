@@ -1115,11 +1115,31 @@ class ClassroomPrototypeHandler(http.server.SimpleHTTPRequestHandler):
         self._send_html(200, body)
 
     def _server_base_url(self) -> str:
-        host = (self.headers.get("Host") or "").strip()
+        forwarded = self.headers.get("Forwarded") or ""
+        forwarded_host = ""
+        forwarded_proto = ""
+        if forwarded:
+            first_entry = forwarded.split(",")[0]
+            for part in first_entry.split(";"):
+                key, _, value = part.strip().partition("=")
+                if not value:
+                    continue
+                normalized_key = key.lower()
+                normalized_value = value.strip().strip('"')
+                if normalized_key == "host" and not forwarded_host:
+                    forwarded_host = normalized_value
+                elif normalized_key == "proto" and not forwarded_proto:
+                    forwarded_proto = normalized_value
+        host = (
+            forwarded_host
+            or (self.headers.get("X-Forwarded-Host") or "").split(",")[0].strip()
+            or (self.headers.get("X-Original-Host") or "").split(",")[0].strip()
+            or (self.headers.get("Host") or "").strip()
+        )
         if not host:
             server_host, server_port = self.server.server_address[:2]
             host = f"{server_host}:{server_port}"
-        forwarded_proto = (self.headers.get("X-Forwarded-Proto") or "").split(",")[0].strip()
+        forwarded_proto = forwarded_proto or (self.headers.get("X-Forwarded-Proto") or "").split(",")[0].strip()
         scheme = forwarded_proto if forwarded_proto in {"http", "https"} else "http"
         return f"{scheme}://{host}"
 

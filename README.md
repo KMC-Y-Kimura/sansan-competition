@@ -112,9 +112,21 @@ OAuth consent screen の Audience が `External` かつ Publishing status が `T
 概要:
 
 1. Billing を有効化する
-2. Cloud Run / Cloud Build / Artifact Registry API を有効化する
+2. Cloud Run / Cloud Build / Artifact Registry / Cloud Functions API を有効化する
 3. `PROJECT_ID=... ./scripts/deploy_firebase_cloud_run.sh` を実行する
 4. Google OAuth の Web application client に `https://<site>.web.app/oauth/google/callback` を登録する
+
+コストを抑える既定値:
+
+- `MIN_INSTANCES=0`
+- `MAX_INSTANCES=1`
+- `CPU=1`
+- `MEMORY=512Mi`
+- `CONCURRENCY=20`
+
+Budget alert は「通知」であって強制停止ではありません。`Budgets & alerts` で少額予算を作りつつ、Cloud Run の `MAX_INSTANCES=1` を維持してください。
+
+公開環境では、OAuth client JSON は GUI upload だけに頼らず `SANSAN_GOOGLE_OAUTH_CLIENT_JSON_B64` などの環境変数で Cloud Run に持たせてください。詳細は [docs/firebase-hosting-cloud-run-setup.md](/Users/kimura/Desktop/SP活動/2年/後期/sansan-competition/docs/firebase-hosting-cloud-run-setup.md) を参照。
 
 ## CLI / サンプルコマンド
 
