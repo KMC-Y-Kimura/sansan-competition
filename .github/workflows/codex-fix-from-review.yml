@@ -1,0 +1,33 @@
+name: Codex fix from review
+
+on:
+  pull_request_review:
+    types: [submitted]
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: read
+
+jobs:
+  fix-from-review:
+    runs-on: ubuntu-latest
+
+    if: >
+      github.event.review.state == 'changes_requested' &&
+      startsWith(github.event.pull_request.head.ref, 'codex/')
+
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+
+      - name: Run Codex to fix review comments
+        uses: openai/codex-action@main
+        with:
+          prompt: |
+            Review the pull request feedback and update the code accordingly.
+            Only address the requested changes.
+            Do not make unrelated refactors.
+            Run tests if possible.
