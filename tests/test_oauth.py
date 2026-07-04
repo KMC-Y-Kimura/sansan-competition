@@ -55,6 +55,7 @@ class FakeFlow:
     def __init__(self, returned_creds: FakeCreds) -> None:
         self.credentials = returned_creds
         self.redirect_uri: str | None = None
+        self.code_verifier: str | None = None
         self.run_local_server_calls: list[int] = []
         self.authorization_url_calls: list[dict[str, object]] = []
         self.fetch_token_calls: list[str] = []
@@ -65,6 +66,8 @@ class FakeFlow:
 
     def authorization_url(self, **kwargs: object) -> tuple[str, str]:
         self.authorization_url_calls.append(kwargs)
+        if self.code_verifier is None:
+            self.code_verifier = "verifier-123"
         return ("https://accounts.example.test/auth", "state-123")
 
     def fetch_token(self, *, authorization_response: str) -> None:
@@ -282,6 +285,7 @@ class OAuthTests(unittest.TestCase):
 
         self.assertEqual(request.authorization_url, "https://accounts.example.test/auth")
         self.assertEqual(request.state, "state-123")
+        self.assertEqual(request.code_verifier, "verifier-123")
         self.assertEqual(
             fake_flow.redirect_uri,
             "http://127.0.0.1:8000/oauth/google/callback",
@@ -365,6 +369,7 @@ class OAuthTests(unittest.TestCase):
                     "http://127.0.0.1:8000/oauth/google/callback?state=state-123&code=abc"
                 ),
                 redirect_uri="http://127.0.0.1:8000/oauth/google/callback",
+                code_verifier="verifier-123",
                 config=GoogleOAuthConfig(
                     credentials_path=self.credentials_path,
                     token_path=self.token_path,
@@ -380,6 +385,7 @@ class OAuthTests(unittest.TestCase):
             fake_flow.fetch_token_calls,
             ["http://127.0.0.1:8000/oauth/google/callback?state=state-123&code=abc"],
         )
+        self.assertEqual(fake_flow.code_verifier, "verifier-123")
         self.assertEqual(
             json.loads(self.token_path.read_text(encoding="utf-8"))["token"],
             "new",

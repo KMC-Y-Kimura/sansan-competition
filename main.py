@@ -769,7 +769,8 @@ class ClassroomPrototypeHandler(http.server.SimpleHTTPRequestHandler):
                     "createdAt": time.time(),
                     "intent": intent,
                     "redirectUri": redirect_uri,
-                    "scopes": scopes,
+                    "scopes": auth_request.scopes,
+                    "codeVerifier": auth_request.code_verifier,
                     "status": "pending",
                 }
             self._send_json(
@@ -888,6 +889,7 @@ class ClassroomPrototypeHandler(http.server.SimpleHTTPRequestHandler):
                 state=state,
                 authorization_response=self._absolute_request_url(),
                 redirect_uri=str(session.get("redirectUri") or ""),
+                code_verifier=session.get("codeVerifier"),
             )
         except Exception as exc:
             error = resolve_agent_error(

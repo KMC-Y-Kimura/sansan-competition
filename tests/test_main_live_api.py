@@ -260,6 +260,8 @@ class LiveApiTests(unittest.TestCase):
         auth_request = types.SimpleNamespace(
             authorization_url="https://accounts.example.test/auth",
             state="oauth-state-123",
+            scopes=app_main.OAUTH_INTENT_SCOPES["read"],
+            code_verifier="verifier-123",
         )
 
         with (
@@ -286,6 +288,15 @@ class LiveApiTests(unittest.TestCase):
             payload["statusUrl"],
             "/api/live/oauth/status?state=oauth-state-123",
         )
+        with app_main.OAUTH_SESSIONS_LOCK:
+            self.assertEqual(
+                app_main.OAUTH_SESSIONS["oauth-state-123"]["scopes"],
+                app_main.OAUTH_INTENT_SCOPES["read"],
+            )
+            self.assertEqual(
+                app_main.OAUTH_SESSIONS["oauth-state-123"]["codeVerifier"],
+                "verifier-123",
+            )
 
     def test_oauth_status_returns_pending_session(self) -> None:
         with app_main.OAUTH_SESSIONS_LOCK:
@@ -312,6 +323,7 @@ class LiveApiTests(unittest.TestCase):
                 "intent": "read",
                 "redirectUri": "http://localhost:8000",
                 "scopes": app_main.OAUTH_INTENT_SCOPES["read"],
+                "codeVerifier": "verifier-123",
                 "status": "pending",
             }
 
@@ -327,6 +339,10 @@ class LiveApiTests(unittest.TestCase):
         self.assertEqual(status_code, 200)
         self.assertIn("Google Classroom への接続が完了しました", body)
         complete_auth.assert_called_once()
+        self.assertEqual(
+            complete_auth.call_args.kwargs["code_verifier"],
+            "verifier-123",
+        )
         with app_main.OAUTH_SESSIONS_LOCK:
             self.assertEqual(
                 app_main.OAUTH_SESSIONS["oauth-state-123"]["status"],

@@ -39,6 +39,7 @@ class GoogleOAuthAuthorizationRequest:
     authorization_url: str
     state: str
     scopes: tuple[str, ...]
+    code_verifier: str | None
 
 
 def default_classroom_read_scopes(*, include_rosters: bool = True) -> tuple[str, ...]:
@@ -142,6 +143,7 @@ def start_google_oauth_authorization(
         authorization_url=authorization_url,
         state=state,
         scopes=normalized_scopes,
+        code_verifier=getattr(flow, "code_verifier", None),
     )
 
 
@@ -151,6 +153,7 @@ def complete_google_oauth_authorization(
     state: str,
     authorization_response: str,
     redirect_uri: str,
+    code_verifier: str | None = None,
     config: GoogleOAuthConfig | None = None,
 ) -> Any:
     resolved_config = config or GoogleOAuthConfig()
@@ -174,6 +177,8 @@ def complete_google_oauth_authorization(
         state=state,
     )
     flow.redirect_uri = redirect_uri
+    if code_verifier is not None:
+        flow.code_verifier = code_verifier
     flow.fetch_token(authorization_response=authorization_response)
     creds = flow.credentials
     resolved_config.token_path.write_text(creds.to_json(), encoding="utf-8")
