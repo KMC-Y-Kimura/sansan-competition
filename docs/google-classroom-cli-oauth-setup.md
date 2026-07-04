@@ -1,6 +1,6 @@
 # Google Classroom / CLI OAuth セットアップメモ
 
-この文書は、同一端末で CLI を動かす Desktop app OAuth を主対象にする。別端末ブラウザから GUI を使う場合は Web application クライアントを使い、callback は `http://<host>:<port>/oauth/google/callback` または `https://<host>/oauth/google/callback` にする。
+この文書は、同一端末で CLI を動かす Desktop app OAuth を主対象にする。別端末ブラウザから GUI を使う場合は Web application クライアントを使い、callback は `https://<host>/oauth/google/callback` にする。`http://192.168.x.x:8000/...` のような raw IP + HTTP は使えない。
 
 ## 1. 現状
 
@@ -111,7 +111,7 @@
 
 1. Google Cloud Console で OAuth クライアントを作る
    - 同一端末の CLI 確認だけなら Desktop app
-   - 別端末ブラウザから GUI を使うなら Web application。Authorized redirect URI は `http://<host>:<port>/oauth/google/callback` または `https://<host>/oauth/google/callback`
+   - 別端末ブラウザから GUI を使うなら Web application。Authorized redirect URI は `https://<host>/oauth/google/callback`
 2. Audience が `External` で Publishing status が `Testing` なら、`Google Auth platform > Audience > Test users` で利用する Google アカウントを追加する
 3. ダウンロードした JSON を登録する
    - GUI: ログイン画面の `OAuth client JSON を選択` から登録
@@ -132,7 +132,7 @@ uv run python scripts/classroom_oauth_smoke.py
 - macOS のシステム Python では `python3 -m pip install -e '.[google]'` が `externally-managed-environment` で失敗することがあります。このリポジトリでは `uv` を使う方が安全です。
 - Google 側で 403 `access_denied` が出る場合、コードより先に `Test users` 設定を疑うべきです。
 - OAuth app が `Testing` の間に発行される refresh token は、Google 公式仕様上 7 日で失効します。長期運用前提なら公開前でも再認証前提で扱うか、必要な verification を進める必要があります。
-- GUI を別端末ブラウザから使う場合は、Web application クライアントの Authorized redirect URI に `https://<host>/oauth/google/callback` または `http://<host>:<port>/oauth/google/callback` を追加してください。Desktop app クライアントでは別端末ブラウザの callback を受けられません。
+- GUI を別端末ブラウザから使う場合は、Web application クライアントの Authorized redirect URI に `https://<host>/oauth/google/callback` を追加してください。Desktop app クライアントでは別端末ブラウザの callback を受けられません。redirect URI を追加したら、保存後に JSON を再ダウンロードしてください。
 
 ## 6.5 実データで提出分析を確認する
 

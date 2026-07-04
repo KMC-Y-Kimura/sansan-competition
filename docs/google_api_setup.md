@@ -10,7 +10,7 @@
 4. 認証情報 → OAuthクライアントID を作成する。
    - CLI を同一端末で使うだけなら **「デスクトップアプリ」**
    - 別端末ブラウザから GUI を使うなら **「ウェブ アプリケーション」**
-5. Web application を使う場合は Authorized redirect URI に `https://<host>/oauth/google/callback` または `http://<host>:<port>/oauth/google/callback` を追加する。callback path は常に `/oauth/google/callback`。
+5. Web application を使う場合は Authorized redirect URI に `https://<host>/oauth/google/callback` を追加する。callback path は常に `/oauth/google/callback`。`http://192.168.x.x:8000/...` のような raw IP + HTTP は使えない。`http://localhost:8000/...` は同一端末ローカル確認の例外扱い。
 
 ## 2. 依存インストール
 

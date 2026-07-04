@@ -52,6 +52,7 @@ gcloud run deploy "${SERVICE_ID}" \
   --region "${REGION}" \
   --timeout "${TIMEOUT}" \
   --cpu-throttling \
+  --no-cpu-boost \
   --allow-unauthenticated
 
 firebase use "${PROJECT_ID}"

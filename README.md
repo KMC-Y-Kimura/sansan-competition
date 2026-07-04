@@ -37,7 +37,8 @@ uv run python main.py --host 127.0.0.1 --port 8000
 
 ブラウザで `http://127.0.0.1:8000` を開きます。
 
-別端末ブラウザから確認したい場合は、サーバを外向きに bind してください。
+別端末ブラウザから画面表示だけ確認したい場合は、サーバを外向きに bind できます。
+ただし Google OAuth を実際に通すには、raw IP + HTTP ではなく、`https://...` の公開ドメインが必要です。
 
 ```bash
 uv run python main.py --host 0.0.0.0 --port 8000
@@ -59,10 +60,13 @@ OAuth client の使い分け:
 - 同一端末で CLI またはローカル GUI を使うだけなら `Desktop app`
 - 別端末ブラウザから GUI を使うなら `Web application`
 
-別端末ブラウザ利用時は、Google Cloud 側の Authorized redirect URI に、実際のアクセス先に合わせて次を追加してください。
+別端末ブラウザ利用時は、Google Cloud 側の Authorized redirect URI に、実際の `https://...` アクセス先を追加してください。
 
-- `http://<host>:<port>/oauth/google/callback`
-- または `https://<host>/oauth/google/callback`
+- `https://<site>.web.app/oauth/google/callback`
+- または `https://<your-domain>/oauth/google/callback`
+
+`http://192.168.x.x:8000/...` のような raw IP + HTTP は、Google の Web application OAuth client では使えません。
+`http://localhost:8000/...` は同一端末ローカル確認の例外扱いです。
 
 GUI のログイン画面では、現在必要な redirect URI と設定不足の理由が表示されます。
 OAuth consent screen の Audience が `External` かつ Publishing status が `Testing` の場合は、利用する Google アカウントを `Test users` に追加してください。未追加だと 403 `access_denied` になります。
@@ -115,6 +119,7 @@ OAuth consent screen の Audience が `External` かつ Publishing status が `T
 2. Cloud Run / Cloud Build / Artifact Registry / Cloud Functions API を有効化する
 3. `PROJECT_ID=... ./scripts/deploy_firebase_cloud_run.sh` を実行する
 4. Google OAuth の Web application client に `https://<site>.web.app/oauth/google/callback` を登録する
+5. redirect URI を保存したあとで OAuth client JSON を再ダウンロードし、GUI upload または Cloud Run 環境変数に登録する
 
 コストを抑える既定値:
 
@@ -124,7 +129,12 @@ OAuth consent screen の Audience が `External` かつ Publishing status が `T
 - `MEMORY=512Mi`
 - `CONCURRENCY=20`
 
-Budget alert は「通知」であって強制停止ではありません。`Budgets & alerts` で少額予算を作りつつ、Cloud Run の `MAX_INSTANCES=1` を維持してください。
+Budget alert は「通知」であって強制停止ではありません。公開された `web.app` + Cloud Run 構成では、無料枠内を「必ず保証」することはできません。`Budgets & alerts` で少額予算を作りつつ、Cloud Run の `MAX_INSTANCES=1` を維持してください。
+
+課金ゼロを厳密に優先するなら、次のどちらかに寄せる必要があります。
+
+- Cloud Run を使わず、各端末で `uv run python main.py` を動かすローカル運用にする
+- 公開構成は残すが、低トラフィック前提の実験環境として扱い、予算通知で監視する
 
 公開環境では、OAuth client JSON は GUI upload だけに頼らず `SANSAN_GOOGLE_OAUTH_CLIENT_JSON_B64` などの環境変数で Cloud Run に持たせてください。詳細は [docs/firebase-hosting-cloud-run-setup.md](/Users/kimura/Desktop/SP活動/2年/後期/sansan-competition/docs/firebase-hosting-cloud-run-setup.md) を参照。
 

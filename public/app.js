@@ -43,6 +43,7 @@ const workflowSteps = [
 const app = document.querySelector("#app");
 let oauthPollGeneration = 0;
 const manualLogoutStorageKey = "sansan-classroom-manual-logout";
+const oauthStatusPollIntervalMs = 3000;
 
 const emptyOAuthDialog = {
   open: false,
@@ -1419,7 +1420,9 @@ async function waitForOAuthCompletion(generation, statusUrl) {
       render();
       throw new Error(state.oauthDialog.errorMessage);
     }
-    await new Promise((resolve) => window.setTimeout(resolve, 1000));
+    await new Promise((resolve) =>
+      window.setTimeout(resolve, oauthStatusPollIntervalMs),
+    );
   }
 
   state.oauthDialog.errorMessage =

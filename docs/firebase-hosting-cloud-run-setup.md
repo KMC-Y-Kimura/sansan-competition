@@ -79,6 +79,8 @@ PROJECT_ID=YOUR_PROJECT_ID REGION=asia-northeast1 SERVICE_ID=sansan-competition 
 - `MAX_INSTANCES=1`: service-level / revision-level の両方で横方向に増殖しないようにする
 - `CPU=1` / `MEMORY=512Mi`: 必要最小限に寄せる
 - `CONCURRENCY=20`: 少人数アクセスでインスタンス数を増やしにくくする
+- `--cpu-throttling`: リクエスト非処理時の CPU 消費を抑える
+- `--no-cpu-boost`: 起動時の一時的な CPU 上乗せを避ける
 
 必要なら環境変数で上書きできます。
 
@@ -89,6 +91,15 @@ PROJECT_ID=YOUR_PROJECT_ID MAX_INSTANCES=2 MEMORY=1Gi ./scripts/deploy_firebase_
 ## 予算管理
 
 重要なのは、Cloud Billing の `Budget` は通常は「通知」であって「強制停止」ではない、という点です。
+そのため、この公開構成は「無料枠を超えにくくする」ことはできますが、「必ず無料枠内に収める」保証はできません。
+
+理由:
+
+- Cloud Run の `max instances` はコスト安全策ですが、一時的に超える場合があります
+- Firebase Hosting の通信量はアクセス数に応じて増えます
+- Cloud Run の source deploy は Cloud Build / Artifact Registry も使います
+
+厳密に課金ゼロを優先するなら、Cloud Run を使わず各端末でローカル実行する構成に切り替えるべきです。
 
 最低限、次を設定してください。
 
@@ -135,7 +146,7 @@ gcloud run services update sansan-competition \
   --update-env-vars "SANSAN_GOOGLE_OAUTH_CLIENT_JSON_B64=${CLIENT_JSON_B64}"
 ```
 
-この前に、Google Cloud Console 側で Authorized redirect URI に次を追加し、JSON を再ダウンロードしてください。
+この前に、Google Cloud Console 側で Authorized redirect URI に次を追加し、保存後に JSON を再ダウンロードしてください。
 
 ```text
 https://YOUR_SITE_ID.web.app/oauth/google/callback
@@ -144,6 +155,7 @@ https://YOUR_SITE_ID.web.app/oauth/google/callback
 ## 注意
 
 - `http://192.168.x.x:8000/...` のような生 IP + HTTP は Google OAuth の Web application client では使えません
+- `https://YOUR_SITE_ID.web.app/oauth/google/callback` を追加しただけでは反映されません。保存後の新しい JSON を使ってください
 - `Desktop app` client は同一端末ローカル確認用です
 - 別端末ブラウザから使う場合は `Web application` client を使ってください
 - OAuth client JSON は repo にコミットしないでください
