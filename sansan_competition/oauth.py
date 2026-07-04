@@ -77,9 +77,10 @@ def load_google_user_credentials(
     if resolved_config.token_path.exists():
         stored_scopes = _read_token_scopes(resolved_config.token_path)
         if stored_scopes and _scopes_cover_requested_scopes(stored_scopes, normalized_scopes):
+            effective_scopes = _normalize_scopes([*stored_scopes, *normalized_scopes])
             creds = Credentials.from_authorized_user_file(
                 str(resolved_config.token_path),
-                normalized_scopes,
+                effective_scopes,
             )
             if not _credentials_cover_scopes(creds, normalized_scopes):
                 creds = None

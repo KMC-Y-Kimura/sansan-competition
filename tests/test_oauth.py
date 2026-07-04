@@ -90,8 +90,12 @@ class OAuthTests(unittest.TestCase):
         refreshed_creds: FakeCreds,
     ):
         fake_flow = FakeFlow(refreshed_creds)
+        requested_scopes_calls: list[tuple[str, ...]] = []
         fake_credentials_class = types.SimpleNamespace(
-            from_authorized_user_file=lambda path, scopes: cached_creds
+            from_authorized_user_file=lambda path, scopes: (
+                requested_scopes_calls.append(tuple(scopes)),
+                cached_creds,
+            )[1]
         )
         fake_flow_class = types.SimpleNamespace(
             from_client_secrets_file=lambda path, scopes, state=None: fake_flow
@@ -110,7 +114,7 @@ class OAuthTests(unittest.TestCase):
                 "google_auth_oauthlib": types.ModuleType("google_auth_oauthlib"),
                 "google_auth_oauthlib.flow": types.SimpleNamespace(InstalledAppFlow=fake_flow_class),
             },
-        ), fake_flow
+        ), fake_flow, requested_scopes_calls
 
     def test_reauthorizes_when_cached_token_lacks_requested_scopes(self) -> None:
         cached_creds = FakeCreds(
@@ -125,7 +129,7 @@ class OAuthTests(unittest.TestCase):
             has_scopes_result=True,
             token_json='{"token":"new"}',
         )
-        modules_patch, fake_flow = self._patch_google_modules(
+        modules_patch, fake_flow, _ = self._patch_google_modules(
             cached_creds=cached_creds,
             refreshed_creds=refreshed_creds,
         )
@@ -163,7 +167,7 @@ class OAuthTests(unittest.TestCase):
             '{"token":"old","scopes":["scope.a","scope.b"]}',
             encoding="utf-8",
         )
-        modules_patch, fake_flow = self._patch_google_modules(
+        modules_patch, fake_flow, _ = self._patch_google_modules(
             cached_creds=cached_creds,
             refreshed_creds=refreshed_creds,
         )
@@ -206,7 +210,7 @@ class OAuthTests(unittest.TestCase):
             ),
             encoding="utf-8",
         )
-        modules_patch, fake_flow = self._patch_google_modules(
+        modules_patch, fake_flow, _ = self._patch_google_modules(
             cached_creds=cached_creds,
             refreshed_creds=refreshed_creds,
         )
@@ -234,7 +238,7 @@ class OAuthTests(unittest.TestCase):
             scopes=("scope.a",),
             has_scopes_result=True,
         )
-        modules_patch, _ = self._patch_google_modules(
+        modules_patch, _, _ = self._patch_google_modules(
             cached_creds=cached_creds,
             refreshed_creds=refreshed_creds,
         )
@@ -261,7 +265,7 @@ class OAuthTests(unittest.TestCase):
             scopes=("scope.a",),
             has_scopes_result=True,
         )
-        modules_patch, fake_flow = self._patch_google_modules(
+        modules_patch, fake_flow, _ = self._patch_google_modules(
             cached_creds=cached_creds,
             refreshed_creds=refreshed_creds,
         )
@@ -313,7 +317,7 @@ class OAuthTests(unittest.TestCase):
             ),
             encoding="utf-8",
         )
-        modules_patch, _ = self._patch_google_modules(
+        modules_patch, _, _ = self._patch_google_modules(
             cached_creds=cached_creds,
             refreshed_creds=refreshed_creds,
         )
@@ -348,7 +352,7 @@ class OAuthTests(unittest.TestCase):
             has_scopes_result=True,
             token_json='{"token":"new","scopes":["scope.a","scope.b"]}',
         )
-        modules_patch, fake_flow = self._patch_google_modules(
+        modules_patch, fake_flow, _ = self._patch_google_modules(
             cached_creds=cached_creds,
             refreshed_creds=refreshed_creds,
         )
@@ -379,6 +383,73 @@ class OAuthTests(unittest.TestCase):
         self.assertEqual(
             json.loads(self.token_path.read_text(encoding="utf-8"))["token"],
             "new",
+        )
+
+    def test_refresh_preserves_cached_scope_union(self) -> None:
+        cached_creds = FakeCreds(
+            valid=False,
+            expired=True,
+            refresh_token="refresh-token",
+            scopes=(
+                CLASSROOM_COURSES_READONLY_SCOPE,
+                CLASSROOM_ANNOUNCEMENTS_SCOPE,
+            ),
+            has_scopes_result=True,
+            token_json=json.dumps(
+                {
+                    "token": "refreshed",
+                    "scopes": [
+                        CLASSROOM_COURSES_READONLY_SCOPE,
+                        CLASSROOM_ANNOUNCEMENTS_SCOPE,
+                    ],
+                }
+            ),
+        )
+        refreshed_creds = FakeCreds(
+            valid=True,
+            scopes=(
+                CLASSROOM_COURSES_READONLY_SCOPE,
+                CLASSROOM_ANNOUNCEMENTS_SCOPE,
+            ),
+            has_scopes_result=True,
+        )
+        self.token_path.write_text(
+            json.dumps(
+                {
+                    "token": "old",
+                    "refresh_token": "refresh-token",
+                    "scopes": [
+                        CLASSROOM_COURSES_READONLY_SCOPE,
+                        CLASSROOM_ANNOUNCEMENTS_SCOPE,
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        modules_patch, _, requested_scopes_calls = self._patch_google_modules(
+            cached_creds=cached_creds,
+            refreshed_creds=refreshed_creds,
+        )
+
+        with modules_patch:
+            creds = load_google_user_credentials(
+                (CLASSROOM_COURSES_READONLY_SCOPE,),
+                config=GoogleOAuthConfig(
+                    credentials_path=self.credentials_path,
+                    token_path=self.token_path,
+                ),
+            )
+
+        self.assertIs(creds, cached_creds)
+        self.assertTrue(cached_creds.refreshed)
+        self.assertEqual(
+            requested_scopes_calls,
+            [
+                (
+                    CLASSROOM_COURSES_READONLY_SCOPE,
+                    CLASSROOM_ANNOUNCEMENTS_SCOPE,
+                )
+            ],
         )
 
 
