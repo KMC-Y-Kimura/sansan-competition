@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 import tempfile
 import types
@@ -56,6 +57,7 @@ class FakeFlow:
         self.credentials = returned_creds
         self.redirect_uri: str | None = None
         self.code_verifier: str | None = None
+        self.require_relaxed_token_scope = False
         self.run_local_server_calls: list[int] = []
         self.authorization_url_calls: list[dict[str, object]] = []
         self.fetch_token_calls: list[str] = []
@@ -71,6 +73,10 @@ class FakeFlow:
         return ("https://accounts.example.test/auth", "state-123")
 
     def fetch_token(self, *, authorization_response: str) -> None:
+        if self.require_relaxed_token_scope and not os.environ.get(
+            "OAUTHLIB_RELAX_TOKEN_SCOPE"
+        ):
+            raise Warning("Scope has changed.")
         self.fetch_token_calls.append(authorization_response)
 
 
@@ -427,6 +433,77 @@ class OAuthTests(unittest.TestCase):
             fake_flow.fetch_token_calls,
             ["https://127.0.0.1:8000/?state=state-123&code=abc"],
         )
+
+    def test_complete_google_oauth_authorization_accepts_google_scope_alias(self) -> None:
+        self.token_path.write_text('{"token":"old","scopes":[]}', encoding="utf-8")
+        cached_creds = FakeCreds(
+            valid=True,
+            scopes=("scope.a",),
+            has_scopes_result=True,
+        )
+        refreshed_creds = FakeCreds(
+            valid=True,
+            scopes=(CLASSROOM_STUDENT_SUBMISSIONS_STUDENTS_READONLY_SCOPE,),
+            has_scopes_result=False,
+            token_json=json.dumps(
+                {
+                    "token": "new",
+                    "scopes": [CLASSROOM_STUDENT_SUBMISSIONS_STUDENTS_READONLY_SCOPE],
+                }
+            ),
+        )
+        modules_patch, fake_flow, _ = self._patch_google_modules(
+            cached_creds=cached_creds,
+            refreshed_creds=refreshed_creds,
+        )
+        fake_flow.require_relaxed_token_scope = True
+
+        with modules_patch:
+            creds = complete_google_oauth_authorization(
+                (CLASSROOM_COURSEWORK_STUDENTS_READONLY_SCOPE,),
+                state="state-123",
+                authorization_response="http://127.0.0.1:8000/?state=state-123&code=abc",
+                redirect_uri="http://localhost:8000",
+                code_verifier="verifier-123",
+                config=GoogleOAuthConfig(
+                    credentials_path=self.credentials_path,
+                    token_path=self.token_path,
+                ),
+            )
+
+        self.assertIs(creds, refreshed_creds)
+
+    def test_complete_google_oauth_authorization_rejects_missing_granted_scope(self) -> None:
+        self.token_path.write_text('{"token":"old","scopes":[]}', encoding="utf-8")
+        cached_creds = FakeCreds(
+            valid=True,
+            scopes=("scope.a",),
+            has_scopes_result=True,
+        )
+        refreshed_creds = FakeCreds(
+            valid=True,
+            scopes=("scope.unrelated",),
+            has_scopes_result=False,
+        )
+        modules_patch, fake_flow, _ = self._patch_google_modules(
+            cached_creds=cached_creds,
+            refreshed_creds=refreshed_creds,
+        )
+        fake_flow.require_relaxed_token_scope = True
+
+        with modules_patch:
+            with self.assertRaises(RuntimeError):
+                complete_google_oauth_authorization(
+                    (CLASSROOM_COURSEWORK_STUDENTS_READONLY_SCOPE,),
+                    state="state-123",
+                    authorization_response="http://127.0.0.1:8000/?state=state-123&code=abc",
+                    redirect_uri="http://localhost:8000",
+                    code_verifier="verifier-123",
+                    config=GoogleOAuthConfig(
+                        credentials_path=self.credentials_path,
+                        token_path=self.token_path,
+                    ),
+                )
 
     def test_refresh_preserves_cached_scope_union(self) -> None:
         cached_creds = FakeCreds(

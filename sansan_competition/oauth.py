@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 import os
 from dataclasses import dataclass
 import json
@@ -180,12 +181,19 @@ def complete_google_oauth_authorization(
     flow.redirect_uri = redirect_uri
     if code_verifier is not None:
         flow.code_verifier = code_verifier
-    flow.fetch_token(
-        authorization_response=_coerce_loopback_authorization_response_to_https(
-            authorization_response
+    with _relax_oauthlib_token_scope_check():
+        flow.fetch_token(
+            authorization_response=_coerce_loopback_authorization_response_to_https(
+                authorization_response
+            )
         )
-    )
     creds = flow.credentials
+    if not _granted_scopes_cover_requested_scopes(creds, normalized_scopes):
+        granted_scopes = _normalize_scopes(getattr(creds, "scopes", ()) or ())
+        raise RuntimeError(
+            "Granted OAuth scopes do not cover the requested access. "
+            f"requested={normalized_scopes!r} granted={granted_scopes!r}"
+        )
     resolved_config.token_path.write_text(creds.to_json(), encoding="utf-8")
     return creds
 
@@ -271,6 +279,31 @@ def _coerce_loopback_authorization_response_to_https(
         fragment=parsed.fragment,
     )
     return urlunsplit(secure_parts)
+
+
+@contextmanager
+def _relax_oauthlib_token_scope_check() -> Any:
+    original = os.environ.get("OAUTHLIB_RELAX_TOKEN_SCOPE")
+    os.environ["OAUTHLIB_RELAX_TOKEN_SCOPE"] = "1"
+    try:
+        yield
+    finally:
+        if original is None:
+            os.environ.pop("OAUTHLIB_RELAX_TOKEN_SCOPE", None)
+        else:
+            os.environ["OAUTHLIB_RELAX_TOKEN_SCOPE"] = original
+
+
+def _granted_scopes_cover_requested_scopes(
+    creds: Any,
+    requested_scopes: Iterable[str],
+) -> bool:
+    if _credentials_cover_scopes(creds, requested_scopes):
+        return True
+    granted_scopes = _normalize_scopes(getattr(creds, "scopes", ()) or ())
+    if not granted_scopes:
+        return False
+    return _scopes_cover_requested_scopes(granted_scopes, requested_scopes)
 
 
 def _scope_equivalents(scope: str) -> tuple[str, ...]:
