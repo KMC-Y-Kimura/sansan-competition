@@ -1,0 +1,169 @@
+{
+  "course": {
+    "id": "course_live_math_001",
+    "name": "数学II",
+    "section": "2年B組",
+    "descriptionHeading": "ベクトルと微分",
+    "courseState": "ACTIVE",
+    "teachers": [
+      {
+        "userId": "teacher_001"
+      }
+    ],
+    "studentCount": 4
+  },
+  "courseWork": {
+    "id": "cw_live_vectors_001",
+    "courseId": "course_live_math_001",
+    "title": "ベクトル課題 3",
+    "description": "教科書 p.88-90 の演習を提出してください。",
+    "workType": "ASSIGNMENT",
+    "maxPoints": 20,
+    "dueDate": {
+      "year": 2026,
+      "month": 7,
+      "day": 6
+    },
+    "dueTime": {
+      "hours": 8,
+      "minutes": 30
+    },
+    "state": "PUBLISHED",
+    "materials": [
+      {
+        "driveFile": {
+          "driveFile": {
+            "id": "drive_template_001",
+            "title": "課題テンプレート"
+          }
+        }
+      }
+    ],
+    "topicId": "topic_vectors",
+    "rubricId": "rubric_vectors_001"
+  },
+  "studentsPages": [
+    {
+      "students": [
+        {
+          "userId": "student_001",
+          "profile": {
+            "name": {
+              "fullName": "青木葵"
+            }
+          }
+        },
+        {
+          "userId": "student_002",
+          "profile": {
+            "name": {
+              "fullName": "井上蓮"
+            }
+          }
+        }
+      ],
+      "nextPageToken": "students_page_2"
+    },
+    {
+      "pageToken": "students_page_2",
+      "students": [
+        {
+          "userId": "student_003",
+          "profile": {
+            "name": {
+              "fullName": "上田凛"
+            }
+          }
+        },
+        {
+          "userId": "student_004",
+          "profile": {
+            "name": {
+              "fullName": "遠藤湊"
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "studentSubmissionsPages": [
+    {
+      "studentSubmissions": [
+        {
+          "id": "sub_live_001",
+          "courseId": "course_live_math_001",
+          "courseWorkId": "cw_live_vectors_001",
+          "userId": "student_001",
+          "state": "NEW",
+          "late": false,
+          "updateTime": "2026-07-04T23:00:00Z"
+        },
+        {
+          "id": "sub_live_002",
+          "courseId": "course_live_math_001",
+          "courseWorkId": "cw_live_vectors_001",
+          "userId": "student_002",
+          "state": "TURNED_IN",
+          "late": false,
+          "updateTime": "2026-07-05T07:35:00Z",
+          "submissionHistory": [
+            {
+              "stateHistory": {
+                "state": "TURNED_IN",
+                "stateTimestamp": "2026-07-05T07:30:00Z",
+                "actorUserId": "student_002"
+              }
+            }
+          ],
+          "assignmentSubmission": {
+            "attachments": [
+              {
+                "driveFile": {
+                  "id": "drive_submission_002"
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "nextPageToken": "submissions_page_2"
+    },
+    {
+      "pageToken": "submissions_page_2",
+      "studentSubmissions": [
+        {
+          "id": "sub_live_003",
+          "courseId": "course_live_math_001",
+          "courseWorkId": "cw_live_vectors_001",
+          "userId": "student_003",
+          "state": "RETURNED",
+          "late": false,
+          "assignedGrade": 16,
+          "draftGrade": 18,
+          "updateTime": "2026-07-06T03:10:00Z",
+          "submissionHistory": [
+            {
+              "stateHistory": {
+                "state": "TURNED_IN",
+                "stateTimestamp": "2026-07-06T03:00:00Z",
+                "actorUserId": "student_003"
+              }
+            }
+          ],
+          "assignmentSubmission": {
+            "attachments": []
+          }
+        },
+        {
+          "id": "sub_live_004",
+          "courseId": "course_live_math_001",
+          "courseWorkId": "cw_live_vectors_001",
+          "userId": "student_004",
+          "state": "RECLAIMED_BY_STUDENT",
+          "late": false,
+          "updateTime": "2026-07-05T01:00:00Z"
+        }
+      ]
+    }
+  ]
+}

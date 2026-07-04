@@ -1,11 +1,20 @@
 from __future__ import annotations
 
-import unittest
 from datetime import datetime
+from pathlib import Path
+import unittest
 
 from sansan_competition.analysis import analyze_submissions
-from sansan_competition.classroom import build_classroom_announcement_request
-from sansan_competition.contract import build_reminder_generation_response
+from sansan_competition.classroom import (
+    build_classroom_announcement_request,
+    fetch_submission_analysis,
+    load_classroom_fetch_fixture,
+)
+from sansan_competition.contract import (
+    build_reminder_generation_response,
+    build_submission_analysis_response,
+    validate_agent_output,
+)
 from sansan_competition.execution.errors import AgentError, ErrorCode
 from sansan_competition.execution.google_auth import (
     MockAuthProvider,
@@ -20,6 +29,8 @@ from sansan_competition.normalization import (
     normalize_coursework,
     normalize_submission_batch,
 )
+
+FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures" / "classroom_fetch"
 
 
 def _logged_in() -> MockAuthProvider:
@@ -148,6 +159,85 @@ class ClassroomClientTests(unittest.TestCase):
         with self.assertRaises(AgentError) as ctx:
             client.list_courses()
         self.assertEqual(ctx.exception.code, ErrorCode.CLASSROOM_API_RATE_LIMITED)
+
+
+class ClassroomFixtureRegressionTests(unittest.TestCase):
+    def test_live_like_fixture_documents_mocky_to_kimu_minimum_contract(self) -> None:
+        fixture = load_classroom_fetch_fixture(FIXTURE_DIR / "live_like_assignment.json")
+        client = fixture.build_client()
+
+        raw_course = client.get_course(fixture.course_id)
+        raw_course_work = client.get_coursework(fixture.course_id, fixture.course_work_id)
+        raw_students = client.list_students(fixture.course_id)
+        raw_submissions = client.list_student_submissions(
+            fixture.course_id,
+            fixture.course_work_id,
+        )
+
+        self.assertEqual(raw_course["id"], fixture.course_id)
+        self.assertEqual(raw_course["courseState"], "ACTIVE")
+        self.assertEqual(raw_course_work["id"], fixture.course_work_id)
+        self.assertIsInstance(raw_course_work["dueDate"], dict)
+        self.assertTrue(
+            all(
+                isinstance(student.get("userId"), str) and student["userId"]
+                for student in raw_students
+            )
+        )
+        self.assertTrue(
+            all(
+                isinstance(submission.get("id"), str)
+                and isinstance(submission.get("courseId"), str)
+                and isinstance(submission.get("courseWorkId"), str)
+                and isinstance(submission.get("userId"), str)
+                and isinstance(submission.get("state"), str)
+                for submission in raw_submissions
+            )
+        )
+
+        analysis = fetch_submission_analysis(
+            client,
+            course_id=fixture.course_id,
+            course_work_id=fixture.course_work_id,
+            now=datetime(2026, 7, 5, 12, 0, tzinfo=JST),
+        )
+        counts = analysis.counts()
+        self.assertEqual(counts["totalStudents"], 4)
+        self.assertEqual(counts["unsubmittedCount"], 2)
+        self.assertEqual(counts["dueSoonCount"], 2)
+        self.assertEqual(counts["lateCount"], 1)
+        self.assertEqual(counts["attachmentMissingPossibleCount"], 1)
+
+        late_entry = next(
+            entry for entry in analysis.evaluations if entry.student_id == "student_003"
+        )
+        self.assertEqual(late_entry.student_name, "上田凛")
+        self.assertEqual(
+            late_entry.submitted_at.isoformat(timespec="minutes"),
+            "2026-07-06T12:00+09:00",
+        )
+
+    def test_partial_failure_fixture_surfaces_partial_success_contract(self) -> None:
+        fixture = load_classroom_fetch_fixture(
+            FIXTURE_DIR / "live_like_assignment_partial.json"
+        )
+        analysis = fetch_submission_analysis(
+            fixture.build_client(),
+            course_id=fixture.course_id,
+            course_work_id=fixture.course_work_id,
+            now=datetime(2026, 7, 5, 12, 0, tzinfo=JST),
+        )
+
+        self.assertEqual(len(analysis.normalization_issues), 1)
+        self.assertEqual(analysis.normalization_issues[0].code, "PARTIAL_CLASSROOM_DATA")
+        self.assertIn("state", analysis.normalization_issues[0].message)
+
+        payload = build_submission_analysis_response("req_fixture_partial", analysis)
+        self.assertEqual(validate_agent_output(payload), [])
+        self.assertEqual(payload["status"], "partial_success")
+        self.assertEqual(payload["errors"][0]["code"], "PARTIAL_CLASSROOM_DATA")
+        self.assertIn("state", payload["errors"][0]["message"])
+        self.assertTrue(payload["gui"]["warnings"])
 
 
 class StructuredHandoffTests(unittest.TestCase):

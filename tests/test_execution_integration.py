@@ -2,13 +2,19 @@
 
 from __future__ import annotations
 
+import contextlib
+import io
+import json
 import tempfile
 import unittest
 from datetime import datetime
 from pathlib import Path
 
+from scripts import classroom_fetch_analysis as classroom_fetch_analysis_script
 from sansan_competition.analysis import analyze_submissions
+from sansan_competition.classroom import fetch_submission_analysis, load_classroom_fetch_fixture
 from sansan_competition.contract import (
+    build_submission_analysis_response,
     build_reminder_generation_response,
     validate_agent_output,
 )
@@ -22,6 +28,8 @@ from sansan_competition.execution.classroom_client import MockClassroomClient
 from sansan_competition.execution.google_auth import MockAuthProvider, READ_SCOPES, WRITE_SCOPES
 from sansan_competition.execution.posting import OutputExecutor
 from sansan_competition.execution.renderers import MockGoogleDocsClient
+
+FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures" / "classroom_fetch"
 
 
 class IntegrationTests(unittest.TestCase):
@@ -69,6 +77,55 @@ class IntegrationTests(unittest.TestCase):
             self.assertEqual(statuses["EXPORT_MARKDOWN"], "success")
             # 生成物が存在する
             self.assertTrue(any(Path(tmp).iterdir()))
+
+    def test_live_like_fixture_reaches_submission_analysis_contract(self) -> None:
+        fixture = load_classroom_fetch_fixture(FIXTURE_DIR / "live_like_assignment.json")
+        analysis = fetch_submission_analysis(
+            fixture.build_client(),
+            course_id=fixture.course_id,
+            course_work_id=fixture.course_work_id,
+            now=datetime(2026, 7, 5, 12, 0, tzinfo=JST),
+        )
+
+        payload = build_submission_analysis_response("req_fixture_contract", analysis)
+        self.assertEqual(validate_agent_output(payload), [])
+        self.assertEqual(payload["status"], "success")
+        self.assertEqual(payload["course"]["courseId"], "course_live_math_001")
+        self.assertEqual(
+            payload["summary"]["shortSummary"],
+            "ベクトル課題 3 の未提出者は 2名、遅延提出者は 1名です。",
+        )
+        late_row = next(
+            row
+            for row in payload["gui"]["tables"][0]["rows"]
+            if row["studentId"] == "student_003"
+        )
+        self.assertEqual(late_row["studentName"], "上田凛")
+        self.assertEqual(late_row["status"], "返却済み（遅延提出）")
+
+    def test_classroom_fetch_analysis_script_replays_fixture_without_oauth(self) -> None:
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+
+        with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+            exit_code = classroom_fetch_analysis_script.main(
+                [
+                    "--fixture",
+                    str(FIXTURE_DIR / "live_like_assignment.json"),
+                    "--request-id",
+                    "req_fixture_cli",
+                ]
+            )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(stderr.getvalue(), "")
+
+        payload = json.loads(stdout.getvalue())
+        self.assertEqual(payload["requestId"], "req_fixture_cli")
+        self.assertEqual(payload["status"], "success")
+        self.assertEqual(payload["course"]["courseId"], "course_live_math_001")
+        self.assertEqual(payload["summary"]["teacherActionRequired"], True)
+        self.assertEqual(payload["errors"], [])
 
 
 if __name__ == "__main__":

@@ -120,24 +120,11 @@ def build_ai_task_input(
 
     normalized_teacher_instruction = teacher_instruction.strip()
     target_summary = _summarize_evaluations(selected_evaluations)
-    requested_detail_mode = (
-        "identified_targets"
-        if include_student_names
-        else "minimal_targets_only"
+    requested_detail_mode = _requested_detail_mode(
+        task_type=resolved_task,
+        include_student_names=include_student_names,
     )
-    contains_student_identifiers = any(
-        "studentId" in entry or "studentName" in entry
-        for entry in student_entries
-    )
-    if contains_student_identifiers:
-        applied_detail_mode = "identified_targets"
-        student_identifier_mode = "real_student_id_and_name"
-    elif student_entries:
-        applied_detail_mode = "pseudonymized_targets_only"
-        student_identifier_mode = "pseudonymized_student_ref_only"
-    else:
-        applied_detail_mode = "aggregate_only"
-        student_identifier_mode = "no_student_identifiers"
+    privacy_metadata = _build_privacy_metadata(student_entries, requested_detail_mode)
 
     return {
         "taskType": resolved_task.value,
@@ -155,7 +142,11 @@ def build_ai_task_input(
             "warnings": _build_input_warnings(analysis),
         },
         "delivery": {
-            "outputFormats": output_formats or TASK_DEFAULT_OUTPUT_FORMATS[resolved_task],
+            "outputFormats": (
+                list(output_formats)
+                if output_formats is not None
+                else list(TASK_DEFAULT_OUTPUT_FORMATS[resolved_task])
+            ),
             "tone": tone,
             "teacherInstruction": normalized_teacher_instruction,
             "approvalRequired": resolved_task
@@ -170,18 +161,7 @@ def build_ai_task_input(
             "mustNotInventUnknownInformation": True,
             "prohibitedItems": COMMON_PROHIBITED_ITEMS + list(prohibited_items or []),
         },
-        "privacy": {
-            "requestedDetailMode": requested_detail_mode,
-            "appliedDetailMode": applied_detail_mode,
-            "containsStudentNames": any(
-                "studentName" in entry for entry in student_entries
-            ),
-            "containsStudentIds": any(
-                "studentId" in entry for entry in student_entries
-            ),
-            "studentIdentifierMode": student_identifier_mode,
-            "recommendedForExternalAI": not contains_student_identifiers,
-        },
+        "privacy": privacy_metadata,
     }
 
 
@@ -386,9 +366,62 @@ def _build_student_identity_entry(
         "studentRef": f"student_{index:03d}",
     }
     if include_student_names:
-        entry["studentId"] = evaluation.student_id
         entry["studentName"] = evaluation.student_name
     return entry
+
+
+def _requested_detail_mode(
+    *,
+    task_type: AgentTaskType,
+    include_student_names: bool,
+) -> str:
+    if task_type in {
+        AgentTaskType.COURSE_SUMMARY,
+        AgentTaskType.COURSEWORK_SUMMARY,
+        AgentTaskType.DOCUMENT_EXPORT,
+        AgentTaskType.ERROR_ANALYSIS,
+    }:
+        return "aggregate_only"
+    if include_student_names:
+        return "named_targets_only"
+    return "pseudonymized_targets_only"
+
+
+def _build_privacy_metadata(
+    student_entries: list[dict[str, Any]],
+    requested_detail_mode: str,
+) -> dict[str, Any]:
+    contains_student_names = any("studentName" in entry for entry in student_entries)
+    contains_student_ids = any("studentId" in entry for entry in student_entries)
+
+    if contains_student_names or contains_student_ids:
+        applied_detail_mode = "named_targets_only"
+    elif student_entries:
+        applied_detail_mode = "pseudonymized_targets_only"
+    else:
+        applied_detail_mode = "aggregate_only"
+
+    if contains_student_names and contains_student_ids:
+        student_identifier_mode = "student_id_and_name"
+    elif contains_student_ids:
+        student_identifier_mode = "student_id_only"
+    elif contains_student_names:
+        student_identifier_mode = "student_name_only"
+    elif student_entries:
+        student_identifier_mode = "pseudonymized_student_ref_only"
+    else:
+        student_identifier_mode = "no_student_identifiers"
+
+    return {
+        "requestedDetailMode": requested_detail_mode,
+        "appliedDetailMode": applied_detail_mode,
+        "containsStudentNames": contains_student_names,
+        "containsStudentIds": contains_student_ids,
+        "studentIdentifierMode": student_identifier_mode,
+        "recommendedForExternalAI": not (
+            contains_student_names or contains_student_ids
+        ),
+    }
 
 
 def _selection_mode_label(task_type: AgentTaskType) -> str:

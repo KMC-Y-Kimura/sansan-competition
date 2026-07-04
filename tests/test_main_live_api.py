@@ -10,6 +10,7 @@ from unittest.mock import patch
 import main as app_main
 from sansan_competition.contract import (
     build_reminder_generation_response,
+    build_submission_analysis_response,
     validate_agent_output,
 )
 from sansan_competition.execution.errors import AgentError, ErrorCode
@@ -366,6 +367,10 @@ class LiveApiTests(unittest.TestCase):
         self.assertEqual(payload["agentTaskType"], "SUBMISSION_ANALYSIS")
         self.assertEqual(payload["status"], "success")
         self.assertEqual(validate_agent_output(payload), [])
+        self.assertEqual(
+            payload,
+            build_submission_analysis_response(payload["requestId"], self.analysis),
+        )
 
     def test_submission_analysis_endpoint_maps_agent_error_to_contract_error(self) -> None:
         with (
@@ -422,6 +427,17 @@ class LiveApiTests(unittest.TestCase):
         self.assertEqual(payload["agentTaskType"], "REMINDER_GENERATION")
         self.assertTrue(payload["approval"]["required"])
         self.assertEqual(validate_agent_output(payload), [])
+        self.assertEqual(
+            payload,
+            build_reminder_generation_response(
+                payload["requestId"],
+                self.analysis,
+                reminder_title=app_main.build_default_reminder_title(
+                    self.analysis.course_work
+                ),
+                reminder_body=app_main.build_default_reminder_body(self.analysis),
+            ),
+        )
 
     def test_reminder_generation_endpoint_returns_partial_success_payload(self) -> None:
         _, _, partial_analysis = app_main.build_partial_sample_analysis()
