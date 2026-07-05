@@ -20,11 +20,13 @@ from sansan_competition.oauth import (
     GoogleOAuthConfig,
     GoogleOAuthAuthorizationRequiredError,
     GoogleOAuthConfigurationError,
+    authorize_google_user_via_local_browser,
     clear_google_oauth_token,
     complete_google_oauth_authorization,
     default_google_oauth_client_path,
     inspect_google_oauth_client,
     load_google_user_credentials,
+    resolve_google_oauth_runtime_plan,
     save_google_oauth_client_file,
     start_google_oauth_authorization,
     validate_google_oauth_client_for_redirect_uri,
@@ -67,12 +69,17 @@ class FakeFlow:
         self.redirect_uri: str | None = None
         self.code_verifier: str | None = None
         self.require_relaxed_token_scope = False
-        self.run_local_server_calls: list[int] = []
+        self.run_local_server_calls: list[tuple[int, float | None]] = []
         self.authorization_url_calls: list[dict[str, object]] = []
         self.fetch_token_calls: list[str] = []
 
-    def run_local_server(self, *, port: int) -> FakeCreds:
-        self.run_local_server_calls.append(port)
+    def run_local_server(
+        self,
+        *,
+        port: int,
+        timeout_seconds: float | None = None,
+    ) -> FakeCreds:
+        self.run_local_server_calls.append((port, timeout_seconds))
         return self.credentials
 
     def authorization_url(self, **kwargs: object) -> tuple[str, str]:
@@ -163,7 +170,7 @@ class OAuthTests(unittest.TestCase):
             )
 
         self.assertIs(creds, refreshed_creds)
-        self.assertEqual(fake_flow.run_local_server_calls, [0])
+        self.assertEqual(fake_flow.run_local_server_calls, [(0, None)])
         self.assertEqual(
             json.loads(self.token_path.read_text(encoding="utf-8"))["token"],
             "new",
@@ -282,6 +289,20 @@ class OAuthTests(unittest.TestCase):
                     token_path=self.token_path,
                 ),
             )
+
+    def test_resolve_google_oauth_runtime_plan_uses_local_browser_for_remote_installed_client(self) -> None:
+        plan = resolve_google_oauth_runtime_plan(
+            "http://192.168.10.20:8000/oauth/google/callback",
+            remote_browser_session=True,
+            config=GoogleOAuthConfig(
+                credentials_path=self.credentials_path,
+                token_path=self.token_path,
+            ),
+        )
+
+        self.assertEqual(plan.authorization_mode, "local_browser_assisted")
+        self.assertEqual(plan.client_info.client_type, "installed")
+        self.assertIn("サーバーを実行している端末", plan.authorization_hint)
 
     def test_validate_google_oauth_client_requires_registered_redirect_uri_for_web_client(self) -> None:
         self.credentials_path.write_text(
@@ -467,6 +488,40 @@ class OAuthTests(unittest.TestCase):
                     "prompt": "consent",
                 }
             ],
+        )
+
+    def test_authorize_google_user_via_local_browser_writes_token(self) -> None:
+        cached_creds = FakeCreds(
+            valid=True,
+            scopes=("scope.a",),
+            has_scopes_result=True,
+        )
+        refreshed_creds = FakeCreds(
+            valid=True,
+            scopes=("scope.a", "scope.b"),
+            has_scopes_result=True,
+            token_json='{"token":"new","scopes":["scope.a","scope.b"]}',
+        )
+        modules_patch, fake_flow, _ = self._patch_google_modules(
+            cached_creds=cached_creds,
+            refreshed_creds=refreshed_creds,
+        )
+
+        with modules_patch:
+            creds = authorize_google_user_via_local_browser(
+                ("scope.a", "scope.b"),
+                config=GoogleOAuthConfig(
+                    credentials_path=self.credentials_path,
+                    token_path=self.token_path,
+                ),
+                timeout_seconds=123,
+            )
+
+        self.assertIs(creds, refreshed_creds)
+        self.assertEqual(fake_flow.run_local_server_calls, [(0, 123)])
+        self.assertEqual(
+            json.loads(self.token_path.read_text(encoding="utf-8"))["token"],
+            "new",
         )
 
     def test_start_google_oauth_authorization_reads_client_json_from_env(self) -> None:

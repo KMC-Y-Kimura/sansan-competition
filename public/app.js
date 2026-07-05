@@ -48,8 +48,10 @@ const oauthStatusPollIntervalMs = 3000;
 const emptyOAuthDialog = {
   open: false,
   intent: "read",
+  authorizationMode: "",
   authorizationUrl: "",
   statusUrl: "",
+  authorizationHint: "",
   errorMessage: "",
 };
 
@@ -65,6 +67,8 @@ const emptyOAuthSetup = {
   redirectUri: "",
   serverBaseUrl: "",
   remoteBrowserSession: false,
+  authorizationMode: "",
+  authorizationHint: "",
   recommendedAction: "",
   uploadErrorMessage: "",
 };
@@ -522,9 +526,15 @@ function renderOAuthSetupPanel() {
   const currentClient = setup.clientFilePresent
     ? `現在の client: ${oauthClientTypeLabel(setup.clientType)} / ${setup.clientFilePath}`
     : "このサーバには OAuth client JSON がまだ登録されていません。";
-  const remoteNote = setup.remoteBrowserSession
-    ? "別端末ブラウザから使う場合は Web application クライアントが必要です。"
-    : "同一端末から使う場合は installed / desktop app クライアントも利用できます。";
+  const remoteNote =
+    setup.authorizationMode === "local_browser_assisted"
+      ? "この構成では、認可画面はサーバーを実行している端末の既定ブラウザで開きます。"
+      : setup.remoteBrowserSession
+        ? "別端末ブラウザ自身で Google 認可を完了したい場合は、HTTPS ドメイン付きの Web application クライアントが必要です。"
+        : "同一端末から使う場合は installed / desktop app クライアントも利用できます。";
+  const authorizationHint = setup.authorizationHint
+    ? `<p class="subtle" style="margin: 0 0 10px;">${escapeHtml(setup.authorizationHint)}</p>`
+    : "";
 
   return `
     <section class="state-panel" style="margin: 18px 0;">
@@ -532,6 +542,7 @@ function renderOAuthSetupPanel() {
         <h2 style="margin: 0 0 8px;">OAuth 設定</h2>
         <p class="subtle" style="margin: 0 0 10px;">${escapeHtml(currentClient)}</p>
         <p class="subtle" style="margin: 0 0 10px;">${escapeHtml(remoteNote)}</p>
+        ${authorizationHint}
         <p class="subtle" style="margin: 0 0 14px;">登録すべき redirect URI: ${escapeHtml(setup.redirectUri || "未取得")}</p>
       </div>
       ${notices.length > 0 ? `<div class="warning-list">${notices.join("")}</div>` : ""}
@@ -554,6 +565,23 @@ function renderOAuthDialog() {
   }
 
   const copy = oauthIntentCopy(state.oauthDialog.intent);
+  const localBrowserAssisted =
+    state.oauthDialog.authorizationMode === "local_browser_assisted";
+  const primaryMessage = localBrowserAssisted
+    ? state.oauthDialog.authorizationHint ||
+      "サーバーを実行している端末の既定ブラウザで Google の認可画面を開いています。許可後はこの画面が自動で進みます。"
+    : "Google の認可画面は別ウィンドウで開きます。許可後はこの画面に戻ってください。";
+  const actions = localBrowserAssisted
+    ? `<div class="action-row" style="margin-top: 18px;">
+          <button class="button ghost" data-action="refresh-oauth-setup">状態を更新</button>
+        </div>`
+    : `<div class="action-row" style="margin-top: 18px;">
+          <button class="button primary" data-action="oauth-open">認可画面を開く</button>
+          <a class="button" href="${escapeHtml(state.oauthDialog.authorizationUrl)}" target="_blank" rel="noopener noreferrer">別タブで開く</a>
+        </div>`;
+  const footerNote = localBrowserAssisted
+    ? "サーバー端末でブラウザが開かない場合は、その端末の既定ブラウザ設定を確認してください。"
+    : "画面が開かない場合は、ブラウザのポップアップブロック設定を確認してください。";
   return `
     <div class="modal-backdrop" role="presentation">
       <section class="modal-card" role="dialog" aria-modal="true" aria-labelledby="oauth_dialog_title">
@@ -567,7 +595,7 @@ function renderOAuthDialog() {
         <p class="subtle">${escapeHtml(copy.description)}</p>
         <div class="warning-list">
           <div class="warning-item">
-            Google の認可画面は別ウィンドウで開きます。許可後はこの画面に戻ってください。
+            ${escapeHtml(primaryMessage)}
           </div>
           ${
             state.oauthDialog.errorMessage
@@ -575,12 +603,9 @@ function renderOAuthDialog() {
               : ""
           }
         </div>
-        <div class="action-row" style="margin-top: 18px;">
-          <button class="button primary" data-action="oauth-open">認可画面を開く</button>
-          <a class="button" href="${escapeHtml(state.oauthDialog.authorizationUrl)}" target="_blank" rel="noopener noreferrer">別タブで開く</a>
-        </div>
+        ${actions}
         <p class="subtle" style="margin: 14px 0 0;">
-          画面が開かない場合は、ブラウザのポップアップブロック設定を確認してください。
+          ${escapeHtml(footerNote)}
         </p>
       </section>
     </div>
@@ -1282,6 +1307,8 @@ function normalizeOAuthSetup(payload) {
     redirectUri: String(payload?.redirectUri ?? ""),
     serverBaseUrl: String(payload?.serverBaseUrl ?? ""),
     remoteBrowserSession: Boolean(payload?.remoteBrowserSession),
+    authorizationMode: String(payload?.authorizationMode ?? ""),
+    authorizationHint: String(payload?.authorizationHint ?? ""),
     recommendedAction: String(payload?.recommendedAction ?? ""),
     uploadErrorMessage: "",
   };
@@ -1390,12 +1417,17 @@ async function ensureGoogleAuthorization(intent) {
   state.oauthDialog = {
     open: true,
     intent,
+    authorizationMode: payload.authorizationMode ?? "",
     authorizationUrl: payload.authorizationUrl ?? "",
     statusUrl: payload.statusUrl ?? "",
+    authorizationHint: payload.authorizationHint ?? "",
     errorMessage: "",
   };
   clearLoading();
   render();
+  if (state.oauthDialog.authorizationMode !== "local_browser_assisted") {
+    openOAuthPopupWindow();
+  }
   await waitForOAuthCompletion(generation, payload.statusUrl ?? "");
 }
 

@@ -39,15 +39,16 @@ from sansan_competition.models import JST
 from sansan_competition.oauth import (
     GoogleOAuthConfigurationError,
     GoogleOAuthAuthorizationRequiredError,
+    authorize_google_user_via_local_browser,
     clear_google_oauth_token,
     complete_google_oauth_authorization,
     default_classroom_post_scopes,
     default_classroom_read_scopes,
     inspect_google_oauth_client,
     load_google_user_credentials,
+    resolve_google_oauth_runtime_plan,
     save_google_oauth_client_file,
     start_google_oauth_authorization,
-    validate_google_oauth_client_for_redirect_uri,
 )
 
 
@@ -55,6 +56,7 @@ ROOT = Path(__file__).resolve().parent
 PUBLIC_DIR = ROOT / "public"
 OAUTH_CALLBACK_PATH = "/oauth/google/callback"
 OAUTH_SESSION_TTL_SECONDS = 10 * 60
+OAUTH_LOCAL_BROWSER_TIMEOUT_SECONDS = 5 * 60
 OAUTH_INTENT_SCOPES = {
     "read": default_classroom_read_scopes(),
     "post": default_classroom_post_scopes(),
@@ -455,6 +457,39 @@ def cleanup_expired_oauth_sessions() -> None:
             OAUTH_SESSIONS.pop(state, None)
 
 
+def start_local_browser_oauth_session(state: str, *, intent: str, scopes: Sequence[str]) -> None:
+    def worker() -> None:
+        try:
+            authorize_google_user_via_local_browser(
+                scopes,
+                timeout_seconds=OAUTH_LOCAL_BROWSER_TIMEOUT_SECONDS,
+            )
+        except Exception as exc:
+            error = resolve_agent_error(
+                exc,
+                fallback_code=ErrorCode.GOOGLE_AUTH_EXPIRED,
+            )
+            with OAUTH_SESSIONS_LOCK:
+                if state in OAUTH_SESSIONS:
+                    OAUTH_SESSIONS[state]["status"] = "error"
+                    OAUTH_SESSIONS[state]["error"] = error.to_error_item()
+                    OAUTH_SESSIONS[state]["completedAt"] = time.time()
+            return
+
+        with OAUTH_SESSIONS_LOCK:
+            if state in OAUTH_SESSIONS:
+                OAUTH_SESSIONS[state]["status"] = "completed"
+                OAUTH_SESSIONS[state]["completedAt"] = time.time()
+                OAUTH_SESSIONS[state].pop("error", None)
+
+    thread = threading.Thread(
+        target=worker,
+        name=f"oauth-local-browser-{intent}-{state[:8]}",
+        daemon=True,
+    )
+    thread.start()
+
+
 class ClassroomPrototypeHandler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *args: object, **kwargs: object) -> None:
         super().__init__(*args, directory=str(PUBLIC_DIR), **kwargs)
@@ -689,9 +724,14 @@ class ClassroomPrototypeHandler(http.server.SimpleHTTPRequestHandler):
         ready_for_oauth = False
         status = "configuration_required"
         recommended_action = ""
+        authorization_mode = "unavailable"
+        authorization_hint = ""
 
         try:
-            validate_google_oauth_client_for_redirect_uri(redirect_uri)
+            plan = resolve_google_oauth_runtime_plan(
+                redirect_uri,
+                remote_browser_session=not self._is_loopback_request_host(),
+            )
         except FileNotFoundError:
             recommended_action = (
                 "Google Cloud からダウンロードした OAuth client JSON をこの画面で登録してください。"
@@ -701,6 +741,8 @@ class ClassroomPrototypeHandler(http.server.SimpleHTTPRequestHandler):
         else:
             ready_for_oauth = True
             status = "ready"
+            authorization_mode = plan.authorization_mode
+            authorization_hint = plan.authorization_hint
 
         return {
             "requestId": request_id,
@@ -715,6 +757,8 @@ class ClassroomPrototypeHandler(http.server.SimpleHTTPRequestHandler):
             "redirectUri": redirect_uri,
             "serverBaseUrl": self._server_base_url(),
             "remoteBrowserSession": not self._is_loopback_request_host(),
+            "authorizationMode": authorization_mode,
+            "authorizationHint": authorization_hint,
             "recommendedAction": recommended_action,
         }
 
@@ -775,7 +819,10 @@ class ClassroomPrototypeHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         try:
-            validate_google_oauth_client_for_redirect_uri(self._oauth_redirect_uri())
+            resolve_google_oauth_runtime_plan(
+                self._oauth_redirect_uri(),
+                remote_browser_session=not self._is_loopback_request_host(),
+            )
             load_google_user_credentials(scopes, allow_interactive=False)
             self._send_json(
                 200,
@@ -840,7 +887,10 @@ class ClassroomPrototypeHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         try:
-            validate_google_oauth_client_for_redirect_uri(self._oauth_redirect_uri())
+            plan = resolve_google_oauth_runtime_plan(
+                self._oauth_redirect_uri(),
+                remote_browser_session=not self._is_loopback_request_host(),
+            )
             load_google_user_credentials(scopes, allow_interactive=False)
             self._send_json(
                 200,
@@ -856,6 +906,32 @@ class ClassroomPrototypeHandler(http.server.SimpleHTTPRequestHandler):
             payload["intent"] = intent
             self._send_json(200, payload)
         except GoogleOAuthAuthorizationRequiredError:
+            if plan.authorization_mode == "local_browser_assisted":
+                state = uuid.uuid4().hex
+                with OAUTH_SESSIONS_LOCK:
+                    OAUTH_SESSIONS[state] = {
+                        "createdAt": time.time(),
+                        "intent": intent,
+                        "scopes": tuple(scopes),
+                        "status": "pending",
+                        "authorizationMode": plan.authorization_mode,
+                        "authorizationHint": plan.authorization_hint,
+                    }
+                start_local_browser_oauth_session(state, intent=intent, scopes=tuple(scopes))
+                self._send_json(
+                    200,
+                    {
+                        "requestId": request_id,
+                        "generatedAt": datetime.now(JST).isoformat(timespec="seconds"),
+                        "status": "authorization_required",
+                        "intent": intent,
+                        "authorizationMode": plan.authorization_mode,
+                        "authorizationHint": plan.authorization_hint,
+                        "statusUrl": f"/api/live/oauth/status?state={state}",
+                    },
+                )
+                return
+
             redirect_uri = self._oauth_redirect_uri()
             auth_request = start_google_oauth_authorization(
                 scopes,
@@ -869,6 +945,8 @@ class ClassroomPrototypeHandler(http.server.SimpleHTTPRequestHandler):
                     "scopes": auth_request.scopes,
                     "codeVerifier": auth_request.code_verifier,
                     "status": "pending",
+                    "authorizationMode": plan.authorization_mode,
+                    "authorizationHint": plan.authorization_hint,
                 }
             self._send_json(
                 200,
@@ -877,6 +955,8 @@ class ClassroomPrototypeHandler(http.server.SimpleHTTPRequestHandler):
                     "generatedAt": datetime.now(JST).isoformat(timespec="seconds"),
                     "status": "authorization_required",
                     "intent": intent,
+                    "authorizationMode": plan.authorization_mode,
+                    "authorizationHint": plan.authorization_hint,
                     "authorizationUrl": auth_request.authorization_url,
                     "statusUrl": f"/api/live/oauth/status?state={auth_request.state}",
                 },
@@ -927,6 +1007,8 @@ class ClassroomPrototypeHandler(http.server.SimpleHTTPRequestHandler):
             "generatedAt": datetime.now(JST).isoformat(timespec="seconds"),
             "status": str(session.get("status") or "pending"),
             "intent": session.get("intent"),
+            "authorizationMode": str(session.get("authorizationMode") or ""),
+            "authorizationHint": str(session.get("authorizationHint") or ""),
         }
         error_item = session.get("error")
         if isinstance(error_item, dict):

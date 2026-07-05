@@ -37,8 +37,8 @@ uv run python main.py --host 127.0.0.1 --port 8000
 
 ブラウザで `http://127.0.0.1:8000` を開きます。
 
-別端末ブラウザから画面表示だけ確認したい場合は、サーバを外向きに bind できます。
-ただし Google OAuth を実際に通すには、raw IP + HTTP ではなく、`https://...` の公開ドメインが必要です。
+別端末ブラウザから LAN 内で GUI を使いたい場合は、サーバを外向きに bind してください。
+このローカル運用では、Google の認可画面はサーバを実行している端末の既定ブラウザで開きます。
 
 ```bash
 uv run python main.py --host 0.0.0.0 --port 8000
@@ -58,15 +58,18 @@ OAuth client JSON は GUI から登録するか、端末ごとの設定ディレ
 OAuth client の使い分け:
 
 - 同一端末で CLI またはローカル GUI を使うだけなら `Desktop app`
-- 別端末ブラウザから GUI を使うなら `Web application`
+- LAN 内の別端末ブラウザから GUI を使うローカル運用でも、まずは `Desktop app`
+- 別端末ブラウザ自身で Google 認可まで完了したいなら `Web application`
 
-別端末ブラウザ利用時は、Google Cloud 側の Authorized redirect URI に、実際の `https://...` アクセス先を追加してください。
+ローカル LAN 運用では、`Desktop app` client JSON を GUI から登録してください。
+別端末で `Google Classroomに接続` を押すと、サーバを実行している端末の既定ブラウザで Google 認可画面が自動で開きます。そこで許可すると、別端末側の GUI が自動で進みます。
+
+一方で、別端末ブラウザ自身で Google 認可まで完了したい場合は `Web application` client と HTTPS ドメインが必要です。
 
 - `https://<site>.web.app/oauth/google/callback`
 - または `https://<your-domain>/oauth/google/callback`
 
-`http://192.168.x.x:8000/...` のような raw IP + HTTP は、Google の Web application OAuth client では使えません。
-`http://localhost:8000/...` は同一端末ローカル確認の例外扱いです。
+`http://192.168.x.x:8000/...` のような raw IP + HTTP は、Google の Web application OAuth client では使えません。`http://localhost:8000/...` は同一端末ローカル確認の例外扱いです。
 
 GUI のログイン画面では、現在必要な redirect URI と設定不足の理由が表示されます。
 OAuth consent screen の Audience が `External` かつ Publishing status が `Testing` の場合は、利用する Google アカウントを `Test users` に追加してください。未追加だと 403 `access_denied` になります。
@@ -101,6 +104,24 @@ OAuth consent screen の Audience が `External` かつ Publishing status が `T
 4. 課題を選ぶ
 5. 提出状況分析やリマインド案を確認する
 6. 承認後に Classroom 投稿を実行する
+
+## ローカル LAN 運用
+
+課金なしで使う前提なら、この運用が現実的です。
+
+1. Google Cloud で `Desktop app` の OAuth client を作る
+2. `uv sync --extra google` を実行する
+3. サーバ端末で `uv run python main.py --host 0.0.0.0 --port 8000` を起動する
+4. 別端末のブラウザで `http://<サーバ端末のLAN IP>:8000` を開く
+5. GUI から `OAuth client JSON を選択` で Desktop app JSON を登録する
+6. `Google Classroomに接続` を押す
+7. サーバ端末の既定ブラウザで開いた Google 認可画面で許可する
+
+重要:
+
+- Google 認可を完了するブラウザは、別端末ではなくサーバ端末側です
+- 一度 token が作成されれば、その後は同じサーバを見ている別端末 GUI から利用できます
+- 別端末ブラウザ自身で Google 認可まで完了したい場合は、ローカルのみではなく HTTPS ドメイン付きの `Web application` client が必要です
 
 ## Firebase / Cloud Run 配備
 

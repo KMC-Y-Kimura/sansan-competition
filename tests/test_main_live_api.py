@@ -78,6 +78,10 @@ class LiveApiTests(unittest.TestCase):
         host, port = self.server.server_address
         self.base_url = f"http://{host}:{port}"
         self.course, self.course_work, self.analysis = app_main.build_sample_analysis()
+        self.direct_oauth_plan = types.SimpleNamespace(
+            authorization_mode="direct_redirect",
+            authorization_hint="Google の認可画面をこのブラウザで開きます。",
+        )
 
     def tearDown(self) -> None:
         self.server.shutdown()
@@ -227,8 +231,8 @@ class LiveApiTests(unittest.TestCase):
         with (
             patch.object(
                 app_main,
-                "validate_google_oauth_client_for_redirect_uri",
-                return_value=object(),
+                "resolve_google_oauth_runtime_plan",
+                return_value=self.direct_oauth_plan,
             ),
             patch.object(
                 app_main,
@@ -246,8 +250,8 @@ class LiveApiTests(unittest.TestCase):
         with (
             patch.object(
                 app_main,
-                "validate_google_oauth_client_for_redirect_uri",
-                return_value=object(),
+                "resolve_google_oauth_runtime_plan",
+                return_value=self.direct_oauth_plan,
             ),
             patch.object(
                 app_main,
@@ -265,8 +269,8 @@ class LiveApiTests(unittest.TestCase):
         with (
             patch.object(
                 app_main,
-                "validate_google_oauth_client_for_redirect_uri",
-                return_value=object(),
+                "resolve_google_oauth_runtime_plan",
+                return_value=self.direct_oauth_plan,
             ),
             patch.object(
                 app_main,
@@ -293,8 +297,8 @@ class LiveApiTests(unittest.TestCase):
         with (
             patch.object(
                 app_main,
-                "validate_google_oauth_client_for_redirect_uri",
-                return_value=object(),
+                "resolve_google_oauth_runtime_plan",
+                return_value=self.direct_oauth_plan,
             ),
             patch.object(
                 app_main,
@@ -311,6 +315,7 @@ class LiveApiTests(unittest.TestCase):
 
         self.assertEqual(status_code, 200)
         self.assertEqual(payload["status"], "authorization_required")
+        self.assertEqual(payload["authorizationMode"], "direct_redirect")
         self.assertEqual(
             payload["authorizationUrl"],
             "https://accounts.example.test/auth",
@@ -388,7 +393,7 @@ class LiveApiTests(unittest.TestCase):
         self.assertTrue(payload["clientFilePresent"])
         self.assertEqual(payload["clientType"], "web")
 
-    def test_oauth_config_requires_web_client_for_remote_browser(self) -> None:
+    def test_oauth_config_supports_local_browser_assist_for_remote_installed_client(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             credentials_path = Path(temp_dir) / "credentials.json"
             credentials_path.write_text(
@@ -410,8 +415,9 @@ class LiveApiTests(unittest.TestCase):
                 )
 
         self.assertEqual(status_code, 200)
-        self.assertEqual(payload["status"], "configuration_required")
-        self.assertIn("Web application", payload["recommendedAction"])
+        self.assertEqual(payload["status"], "ready")
+        self.assertEqual(payload["authorizationMode"], "local_browser_assisted")
+        self.assertIn("サーバーを実行している端末", payload["authorizationHint"])
 
     def test_oauth_config_prefers_forwarded_host_for_redirect_uri(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -449,8 +455,8 @@ class LiveApiTests(unittest.TestCase):
         )
         with patch.object(
             app_main,
-            "validate_google_oauth_client_for_redirect_uri",
-            return_value=None,
+            "resolve_google_oauth_runtime_plan",
+            return_value=self.direct_oauth_plan,
         ), patch.object(
             app_main,
             "load_google_user_credentials",
@@ -476,6 +482,44 @@ class LiveApiTests(unittest.TestCase):
                 app_main.OAUTH_SESSIONS["oauth-state-123"]["redirectUri"],
                 "https://classroom-ai-kmc.web.app/oauth/google/callback",
             )
+
+    def test_oauth_start_uses_local_browser_assist_for_remote_installed_client(self) -> None:
+        local_browser_plan = types.SimpleNamespace(
+            authorization_mode="local_browser_assisted",
+            authorization_hint=(
+                "この端末ではなく、サーバーを実行している端末の既定ブラウザで "
+                "Google の認可画面を開きます。"
+            ),
+        )
+        with patch.object(
+            app_main,
+            "resolve_google_oauth_runtime_plan",
+            return_value=local_browser_plan,
+        ), patch.object(
+            app_main,
+            "load_google_user_credentials",
+            side_effect=app_main.GoogleOAuthAuthorizationRequiredError("required"),
+        ), patch.object(
+            app_main,
+            "start_local_browser_oauth_session",
+        ) as start_local_browser:
+            status_code, payload = self._request_json(
+                "/api/live/oauth/start?intent=read",
+                headers={"Host": "192.168.1.20:8000"},
+            )
+
+        self.assertEqual(status_code, 200)
+        self.assertEqual(payload["status"], "authorization_required")
+        self.assertEqual(payload["authorizationMode"], "local_browser_assisted")
+        self.assertIn("サーバーを実行している端末", payload["authorizationHint"])
+        self.assertIn("/api/live/oauth/status?state=", payload["statusUrl"])
+        start_local_browser.assert_called_once()
+        with app_main.OAUTH_SESSIONS_LOCK:
+            self.assertEqual(len(app_main.OAUTH_SESSIONS), 1)
+            state, session = next(iter(app_main.OAUTH_SESSIONS.items()))
+            self.assertEqual(payload["statusUrl"], f"/api/live/oauth/status?state={state}")
+            self.assertEqual(session["authorizationMode"], "local_browser_assisted")
+            self.assertEqual(session["status"], "pending")
 
     def test_oauth_status_returns_pending_session(self) -> None:
         with app_main.OAUTH_SESSIONS_LOCK:

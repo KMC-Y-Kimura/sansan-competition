@@ -35,6 +35,8 @@ class StaticAssetTests(unittest.TestCase):
             "buildEditedReminderPayload",
             "Google Classroomに接続",
             "OAuth client JSON を選択",
+            "local_browser_assisted",
+            "サーバーを実行している端末の既定ブラウザ",
             "data-action=\"retry\"",
             "data-action=\"toggle-developer\"",
             "renderContractChecklist",

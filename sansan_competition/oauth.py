@@ -73,6 +73,13 @@ class GoogleOAuthAuthorizationRequest:
     code_verifier: str | None
 
 
+@dataclass(slots=True)
+class GoogleOAuthRuntimePlan:
+    client_info: GoogleOAuthClientInfo
+    authorization_mode: str
+    authorization_hint: str
+
+
 def default_classroom_read_scopes(*, include_rosters: bool = True) -> tuple[str, ...]:
     scopes = [
         CLASSROOM_COURSES_READONLY_SCOPE,
@@ -209,6 +216,55 @@ def validate_google_oauth_client_for_redirect_uri(
     )
 
 
+def resolve_google_oauth_runtime_plan(
+    redirect_uri: str,
+    *,
+    remote_browser_session: bool,
+    config: GoogleOAuthConfig | None = None,
+) -> GoogleOAuthRuntimePlan:
+    client_info = inspect_google_oauth_client(config)
+    if not client_info.exists:
+        raise FileNotFoundError(f"OAuth client file not found: {client_info.path}")
+
+    if client_info.client_type == "installed":
+        if remote_browser_session:
+            return GoogleOAuthRuntimePlan(
+                client_info=client_info,
+                authorization_mode="local_browser_assisted",
+                authorization_hint=(
+                    "この端末ではなく、サーバーを実行している端末の既定ブラウザで "
+                    "Google の認可画面を開きます。許可が終わるとこの画面が自動で進みます。"
+                ),
+            )
+        if not _is_loopback_redirect_uri(redirect_uri):
+            raise GoogleOAuthConfigurationError(
+                "現在の OAuth client は desktop app 用です。"
+                "同一端末ローカル確認では localhost を使ってください。"
+            )
+        return GoogleOAuthRuntimePlan(
+            client_info=client_info,
+            authorization_mode="direct_redirect",
+            authorization_hint="Google の認可画面をこのブラウザで開きます。",
+        )
+
+    if client_info.client_type == "web":
+        _validate_google_web_redirect_uri_shape(redirect_uri)
+        if redirect_uri not in client_info.redirect_uris:
+            raise GoogleOAuthConfigurationError(
+                "OAuth client の Authorized redirect URI に "
+                f"{redirect_uri} を追加してください。"
+            )
+        return GoogleOAuthRuntimePlan(
+            client_info=client_info,
+            authorization_mode="direct_redirect",
+            authorization_hint="Google の認可画面をこのブラウザで開きます。",
+        )
+
+    raise GoogleOAuthConfigurationError(
+        "OAuth client JSON に `web` または `installed` 設定がありません。"
+    )
+
+
 def load_google_user_credentials(
     scopes: Iterable[str],
     *,
@@ -315,6 +371,38 @@ def complete_google_oauth_authorization(
             )
         )
     creds = flow.credentials
+    if not _granted_scopes_cover_requested_scopes(creds, normalized_scopes):
+        granted_scopes = _normalize_scopes(getattr(creds, "scopes", ()) or ())
+        raise RuntimeError(
+            "Granted OAuth scopes do not cover the requested access. "
+            f"requested={normalized_scopes!r} granted={granted_scopes!r}"
+        )
+    _write_google_oauth_token(resolved_config.token_path, creds.to_json())
+    return creds
+
+
+def authorize_google_user_via_local_browser(
+    scopes: Iterable[str],
+    *,
+    config: GoogleOAuthConfig | None = None,
+    timeout_seconds: float | None = None,
+) -> Any:
+    resolved_config = config or GoogleOAuthConfig()
+    normalized_scopes = _merge_requested_and_cached_scopes(
+        scopes,
+        token_path=resolved_config.token_path,
+    )
+    if not normalized_scopes:
+        raise ValueError("At least one OAuth scope is required.")
+
+    _, _, InstalledAppFlow = _import_google_clients()
+    payload, _ = _require_google_oauth_payload(resolved_config)
+    flow = InstalledAppFlow.from_client_config(payload, normalized_scopes)
+    creds = _run_local_server_relaxing_scope_changes(
+        flow,
+        port=resolved_config.local_server_port,
+        timeout_seconds=timeout_seconds,
+    )
     if not _granted_scopes_cover_requested_scopes(creds, normalized_scopes):
         granted_scopes = _normalize_scopes(getattr(creds, "scopes", ()) or ())
         raise RuntimeError(
@@ -622,11 +710,16 @@ def _scope_equivalents(scope: str) -> tuple[str, ...]:
     return (normalized,)
 
 
-def _run_local_server_relaxing_scope_changes(flow: Any, *, port: int) -> Any:
+def _run_local_server_relaxing_scope_changes(
+    flow: Any,
+    *,
+    port: int,
+    timeout_seconds: float | None = None,
+) -> Any:
     previous = os.environ.get("OAUTHLIB_RELAX_TOKEN_SCOPE")
     os.environ["OAUTHLIB_RELAX_TOKEN_SCOPE"] = "1"
     try:
-        return flow.run_local_server(port=port)
+        return flow.run_local_server(port=port, timeout_seconds=timeout_seconds)
     finally:
         if previous is None:
             os.environ.pop("OAUTHLIB_RELAX_TOKEN_SCOPE", None)
