@@ -75,6 +75,7 @@ class GoogleOAuthAuthorizationRequest:
 
 @dataclass(slots=True)
 class GoogleOAuthRuntimePlan:
+    config: GoogleOAuthConfig
     client_info: GoogleOAuthClientInfo
     authorization_mode: str
     authorization_hint: str
@@ -222,13 +223,19 @@ def resolve_google_oauth_runtime_plan(
     remote_browser_session: bool,
     config: GoogleOAuthConfig | None = None,
 ) -> GoogleOAuthRuntimePlan:
-    client_info = inspect_google_oauth_client(config)
+    runtime_config = _resolve_runtime_google_oauth_config(
+        redirect_uri,
+        remote_browser_session=remote_browser_session,
+        config=config,
+    )
+    client_info = inspect_google_oauth_client(runtime_config)
     if not client_info.exists:
         raise FileNotFoundError(f"OAuth client file not found: {client_info.path}")
 
     if client_info.client_type == "installed":
         if remote_browser_session:
             return GoogleOAuthRuntimePlan(
+                config=runtime_config,
                 client_info=client_info,
                 authorization_mode="local_browser_assisted",
                 authorization_hint=(
@@ -242,6 +249,7 @@ def resolve_google_oauth_runtime_plan(
                 "同一端末ローカル確認では localhost を使ってください。"
             )
         return GoogleOAuthRuntimePlan(
+            config=runtime_config,
             client_info=client_info,
             authorization_mode="direct_redirect",
             authorization_hint="Google の認可画面をこのブラウザで開きます。",
@@ -255,6 +263,7 @@ def resolve_google_oauth_runtime_plan(
                 f"{redirect_uri} を追加してください。"
             )
         return GoogleOAuthRuntimePlan(
+            config=runtime_config,
             client_info=client_info,
             authorization_mode="direct_redirect",
             authorization_hint="Google の認可画面をこのブラウザで開きます。",
@@ -466,6 +475,62 @@ def _resolve_google_oauth_token_path(
     if LEGACY_GOOGLE_OAUTH_TOKEN_PATH.exists():
         return LEGACY_GOOGLE_OAUTH_TOKEN_PATH
     return default_path
+
+
+def _resolve_runtime_google_oauth_config(
+    redirect_uri: str,
+    *,
+    remote_browser_session: bool,
+    config: GoogleOAuthConfig | None = None,
+) -> GoogleOAuthConfig:
+    resolved_config = config or GoogleOAuthConfig()
+    if config is not None:
+        return resolved_config
+    if _load_google_oauth_payload_from_env() is not None:
+        return resolved_config
+    if os.environ.get(GOOGLE_OAUTH_CLIENT_FILE_ENV, "").strip():
+        return resolved_config
+
+    current_info = inspect_google_oauth_client(resolved_config)
+    if _oauth_client_info_supports_runtime(
+        current_info,
+        redirect_uri,
+        remote_browser_session=remote_browser_session,
+    ):
+        return resolved_config
+
+    if _is_loopback_redirect_uri(redirect_uri) and LEGACY_GOOGLE_OAUTH_CLIENT_PATH.exists():
+        legacy_config = GoogleOAuthConfig(credentials_path=LEGACY_GOOGLE_OAUTH_CLIENT_PATH)
+        legacy_info = inspect_google_oauth_client(legacy_config)
+        if _oauth_client_info_supports_runtime(
+            legacy_info,
+            redirect_uri,
+            remote_browser_session=remote_browser_session,
+        ):
+            return legacy_config
+
+    return resolved_config
+
+
+def _oauth_client_info_supports_runtime(
+    client_info: GoogleOAuthClientInfo,
+    redirect_uri: str,
+    *,
+    remote_browser_session: bool,
+) -> bool:
+    if not client_info.exists:
+        return False
+    if client_info.client_type == "installed":
+        if remote_browser_session:
+            return True
+        return _is_loopback_redirect_uri(redirect_uri)
+    if client_info.client_type == "web":
+        try:
+            _validate_google_web_redirect_uri_shape(redirect_uri)
+        except GoogleOAuthConfigurationError:
+            return False
+        return redirect_uri in client_info.redirect_uris
+    return False
 
 
 def _load_google_oauth_payload(path: Path) -> dict[str, Any]:

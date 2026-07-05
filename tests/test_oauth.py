@@ -10,6 +10,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import sansan_competition.oauth as oauth_module
 from sansan_competition.oauth import (
     CLASSROOM_ANNOUNCEMENTS_SCOPE,
     CLASSROOM_COURSES_READONLY_SCOPE,
@@ -303,6 +304,58 @@ class OAuthTests(unittest.TestCase):
         self.assertEqual(plan.authorization_mode, "local_browser_assisted")
         self.assertEqual(plan.client_info.client_type, "installed")
         self.assertIn("サーバーを実行している端末", plan.authorization_hint)
+
+    def test_resolve_google_oauth_runtime_plan_prefers_legacy_installed_client_for_loopback(self) -> None:
+        config_dir = Path(self.temp_dir.name) / "config"
+        config_dir.mkdir()
+        incompatible_default_path = config_dir / "credentials.json"
+        incompatible_default_path.write_text(
+            json.dumps(
+                {
+                    "web": {
+                        "client_id": "web-client-id",
+                        "client_secret": "dummy-secret",
+                        "redirect_uris": [],
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        legacy_client_path = Path(self.temp_dir.name) / "legacy-installed.json"
+        legacy_client_path.write_text(
+            json.dumps(
+                {
+                    "installed": {
+                        "client_id": "desktop-client-id",
+                        "redirect_uris": ["http://localhost"],
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        with patch.dict(
+            os.environ,
+            {oauth_module.GOOGLE_OAUTH_CONFIG_DIR_ENV: str(config_dir)},
+            clear=False,
+        ), patch.object(
+            oauth_module,
+            "LEGACY_GOOGLE_OAUTH_CLIENT_PATH",
+            legacy_client_path,
+        ), patch.object(
+            oauth_module,
+            "LEGACY_GOOGLE_OAUTH_TOKEN_PATH",
+            Path(self.temp_dir.name) / "legacy-token.json",
+        ):
+            plan = resolve_google_oauth_runtime_plan(
+                "http://localhost:8000/oauth/google/callback",
+                remote_browser_session=False,
+            )
+
+        self.assertEqual(plan.client_info.client_type, "installed")
+        self.assertEqual(plan.client_info.client_id, "desktop-client-id")
+        self.assertEqual(plan.client_info.path, legacy_client_path)
+        self.assertEqual(plan.config.credentials_path, legacy_client_path)
 
     def test_validate_google_oauth_client_requires_registered_redirect_uri_for_web_client(self) -> None:
         self.credentials_path.write_text(

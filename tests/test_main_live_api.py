@@ -11,6 +11,7 @@ from urllib import error, request
 from unittest.mock import patch
 
 import main as app_main
+import sansan_competition.oauth as oauth_module
 from sansan_competition.contract import (
     build_reminder_generation_response,
     build_submission_analysis_response,
@@ -78,7 +79,12 @@ class LiveApiTests(unittest.TestCase):
         host, port = self.server.server_address
         self.base_url = f"http://{host}:{port}"
         self.course, self.course_work, self.analysis = app_main.build_sample_analysis()
+        self.oauth_config = app_main.GoogleOAuthConfig(
+            credentials_path=Path("credentials.json"),
+            token_path=Path("token.json"),
+        )
         self.direct_oauth_plan = types.SimpleNamespace(
+            config=self.oauth_config,
             authorization_mode="direct_redirect",
             authorization_hint="Google の認可画面をこのブラウザで開きます。",
         )
@@ -446,6 +452,56 @@ class LiveApiTests(unittest.TestCase):
         )
         self.assertEqual(payload["serverBaseUrl"], "https://classroom-ai-kmc.web.app")
 
+    def test_oauth_config_prefers_legacy_installed_client_for_loopback(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config_dir = Path(temp_dir) / "config"
+            config_dir.mkdir()
+            (config_dir / "credentials.json").write_text(
+                json.dumps(
+                    {
+                        "web": {
+                            "client_id": "web-client-id",
+                            "client_secret": "secret",
+                            "redirect_uris": [],
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            legacy_client_path = Path(temp_dir) / "repo-credentials.json"
+            legacy_client_path.write_text(
+                json.dumps(
+                    {
+                        "installed": {
+                            "client_id": "desktop-client-id",
+                            "redirect_uris": ["http://localhost"],
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with patch.dict(
+                os.environ,
+                {
+                    "SANSAN_GOOGLE_OAUTH_CONFIG_DIR": str(config_dir),
+                },
+                clear=False,
+            ), patch.object(
+                oauth_module,
+                "LEGACY_GOOGLE_OAUTH_CLIENT_PATH",
+                legacy_client_path,
+            ), patch.object(
+                oauth_module,
+                "LEGACY_GOOGLE_OAUTH_TOKEN_PATH",
+                Path(temp_dir) / "repo-token.json",
+            ):
+                status_code, payload = self._request_json("/api/live/oauth/config")
+
+        self.assertEqual(status_code, 200)
+        self.assertEqual(payload["status"], "ready")
+        self.assertEqual(payload["clientType"], "installed")
+        self.assertEqual(payload["clientFilePath"], str(legacy_client_path))
+
     def test_oauth_start_prefers_forwarded_host_for_redirect_uri(self) -> None:
         auth_request = types.SimpleNamespace(
             authorization_url="https://accounts.example.test/auth",
@@ -485,6 +541,7 @@ class LiveApiTests(unittest.TestCase):
 
     def test_oauth_start_uses_local_browser_assist_for_remote_installed_client(self) -> None:
         local_browser_plan = types.SimpleNamespace(
+            config=self.oauth_config,
             authorization_mode="local_browser_assisted",
             authorization_hint=(
                 "この端末ではなく、サーバーを実行している端末の既定ブラウザで "

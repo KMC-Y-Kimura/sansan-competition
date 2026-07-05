@@ -37,6 +37,7 @@ from sansan_competition.classroom import (
 from sansan_competition.execution.errors import AgentError, ErrorCode
 from sansan_competition.models import JST
 from sansan_competition.oauth import (
+    GoogleOAuthConfig,
     GoogleOAuthConfigurationError,
     GoogleOAuthAuthorizationRequiredError,
     authorize_google_user_via_local_browser,
@@ -457,11 +458,18 @@ def cleanup_expired_oauth_sessions() -> None:
             OAUTH_SESSIONS.pop(state, None)
 
 
-def start_local_browser_oauth_session(state: str, *, intent: str, scopes: Sequence[str]) -> None:
+def start_local_browser_oauth_session(
+    state: str,
+    *,
+    intent: str,
+    scopes: Sequence[str],
+    oauth_config: Any = None,
+) -> None:
     def worker() -> None:
         try:
             authorize_google_user_via_local_browser(
                 scopes,
+                config=oauth_config,
                 timeout_seconds=OAUTH_LOCAL_BROWSER_TIMEOUT_SECONDS,
             )
         except Exception as exc:
@@ -739,6 +747,7 @@ class ClassroomPrototypeHandler(http.server.SimpleHTTPRequestHandler):
         except GoogleOAuthConfigurationError as exc:
             recommended_action = str(exc)
         else:
+            client_info = plan.client_info
             ready_for_oauth = True
             status = "ready"
             authorization_mode = plan.authorization_mode
@@ -819,11 +828,11 @@ class ClassroomPrototypeHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         try:
-            resolve_google_oauth_runtime_plan(
+            plan = resolve_google_oauth_runtime_plan(
                 self._oauth_redirect_uri(),
                 remote_browser_session=not self._is_loopback_request_host(),
             )
-            load_google_user_credentials(scopes, allow_interactive=False)
+            load_google_user_credentials(scopes, config=plan.config, allow_interactive=False)
             self._send_json(
                 200,
                 {
@@ -891,7 +900,7 @@ class ClassroomPrototypeHandler(http.server.SimpleHTTPRequestHandler):
                 self._oauth_redirect_uri(),
                 remote_browser_session=not self._is_loopback_request_host(),
             )
-            load_google_user_credentials(scopes, allow_interactive=False)
+            load_google_user_credentials(scopes, config=plan.config, allow_interactive=False)
             self._send_json(
                 200,
                 {
@@ -916,8 +925,15 @@ class ClassroomPrototypeHandler(http.server.SimpleHTTPRequestHandler):
                         "status": "pending",
                         "authorizationMode": plan.authorization_mode,
                         "authorizationHint": plan.authorization_hint,
+                        "credentialsPath": str(plan.config.credentials_path or ""),
+                        "tokenPath": str(plan.config.token_path or ""),
                     }
-                start_local_browser_oauth_session(state, intent=intent, scopes=tuple(scopes))
+                start_local_browser_oauth_session(
+                    state,
+                    intent=intent,
+                    scopes=tuple(scopes),
+                    oauth_config=plan.config,
+                )
                 self._send_json(
                     200,
                     {
@@ -936,6 +952,7 @@ class ClassroomPrototypeHandler(http.server.SimpleHTTPRequestHandler):
             auth_request = start_google_oauth_authorization(
                 scopes,
                 redirect_uri=redirect_uri,
+                config=plan.config,
             )
             with OAUTH_SESSIONS_LOCK:
                 OAUTH_SESSIONS[auth_request.state] = {
@@ -947,6 +964,8 @@ class ClassroomPrototypeHandler(http.server.SimpleHTTPRequestHandler):
                     "status": "pending",
                     "authorizationMode": plan.authorization_mode,
                     "authorizationHint": plan.authorization_hint,
+                    "credentialsPath": str(plan.config.credentials_path or ""),
+                    "tokenPath": str(plan.config.token_path or ""),
                 }
             self._send_json(
                 200,
@@ -1063,12 +1082,21 @@ class ClassroomPrototypeHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         try:
+            oauth_config = None
+            credentials_path = str(session.get("credentialsPath") or "").strip()
+            token_path = str(session.get("tokenPath") or "").strip()
+            if credentials_path or token_path:
+                oauth_config = GoogleOAuthConfig(
+                    credentials_path=Path(credentials_path).expanduser() if credentials_path else None,
+                    token_path=Path(token_path).expanduser() if token_path else None,
+                )
             complete_google_oauth_authorization(
                 session.get("scopes", ()),
                 state=state,
                 authorization_response=self._absolute_request_url(),
                 redirect_uri=str(session.get("redirectUri") or ""),
                 code_verifier=session.get("codeVerifier"),
+                config=oauth_config,
             )
         except Exception as exc:
             error = resolve_agent_error(
