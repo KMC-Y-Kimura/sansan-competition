@@ -10,7 +10,11 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from sansan_competition.classroom import GoogleClassroomClient, fetch_submission_analysis
+from sansan_competition.classroom import (
+    GoogleClassroomClient,
+    fetch_submission_analysis,
+    load_classroom_fetch_fixture,
+)
 from sansan_competition.contract import build_submission_analysis_response
 from sansan_competition.models import JST
 from sansan_competition.oauth import GoogleOAuthConfig
@@ -18,41 +22,61 @@ from sansan_competition.oauth import GoogleOAuthConfig
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Fetch live Google Classroom data and build the shared submission analysis JSON.",
+        description=(
+            "Fetch Google Classroom data, or replay a raw fixture, and build the shared "
+            "submission analysis JSON."
+        ),
     )
-    parser.add_argument("--course-id", required=True, help="Classroom course ID.")
-    parser.add_argument("--course-work-id", required=True, help="Classroom courseWork ID.")
+    parser.add_argument("--course-id", help="Classroom course ID.")
+    parser.add_argument("--course-work-id", help="Classroom courseWork ID.")
     parser.add_argument(
         "--credentials",
-        default="credentials.json",
-        help="Path to the OAuth client secret JSON file.",
+        default=None,
+        help="Path to the OAuth client secret JSON file. Omit to use the app default.",
     )
     parser.add_argument(
         "--token",
-        default="token.json",
-        help="Path to the cached user token JSON file.",
+        default=None,
+        help="Path to the cached user token JSON file. Omit to use the app default.",
     )
     parser.add_argument(
         "--request-id",
         default="",
         help="Optional request ID for the output contract.",
     )
+    parser.add_argument(
+        "--fixture",
+        help=(
+            "Path to a JSON fixture containing raw Classroom fetch responses. "
+            "When provided, OAuth credentials are not used."
+        ),
+    )
     return parser.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    oauth_config = GoogleOAuthConfig(
-        credentials_path=args.credentials,
-        token_path=args.token,
-    )
 
     try:
-        client = GoogleClassroomClient.from_oauth(oauth_config=oauth_config)
+        if args.fixture:
+            fixture = load_classroom_fetch_fixture(args.fixture)
+            client = fixture.build_client()
+            course_id = (args.course_id or "").strip() or fixture.course_id
+            course_work_id = (args.course_work_id or "").strip() or fixture.course_work_id
+        else:
+            course_id = (args.course_id or "").strip()
+            course_work_id = (args.course_work_id or "").strip()
+            if not course_id or not course_work_id:
+                raise ValueError("--course-id and --course-work-id are required.")
+            oauth_config = GoogleOAuthConfig(
+                credentials_path=args.credentials,
+                token_path=args.token,
+            )
+            client = GoogleClassroomClient.from_oauth(oauth_config=oauth_config)
         analysis = fetch_submission_analysis(
             client,
-            course_id=args.course_id,
-            course_work_id=args.course_work_id,
+            course_id=course_id,
+            course_work_id=course_work_id,
             now=datetime.now(JST),
         )
     except Exception as exc:

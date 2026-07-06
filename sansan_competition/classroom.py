@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+import json
+from pathlib import Path
 from typing import Any
 
 from .analysis import analyze_submissions
@@ -166,6 +168,161 @@ class GoogleClassroomClient:
                 return items
 
 
+@dataclass(slots=True)
+class ClassroomFetchFixture:
+    course: dict[str, Any]
+    course_work: dict[str, Any]
+    students_pages: list[dict[str, Any]]
+    student_submissions_pages: list[dict[str, Any]]
+
+    @property
+    def course_id(self) -> str:
+        return _fixture_required_str(self.course, "id", "courseId")
+
+    @property
+    def course_work_id(self) -> str:
+        return _fixture_required_str(self.course_work, "id", "courseWorkId")
+
+    def build_client(self) -> GoogleClassroomClient:
+        return GoogleClassroomClient(
+            _FixtureClassroomService(
+                course=self.course,
+                course_work=self.course_work,
+                students_pages=self.students_pages,
+                student_submissions_pages=self.student_submissions_pages,
+            )
+        )
+
+
+def load_classroom_fetch_fixture(path: str | Path) -> ClassroomFetchFixture:
+    payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("Fixture payload must be a JSON object.")
+
+    course = _fixture_required_dict(payload, "course")
+    course_work = _fixture_required_dict(payload, "courseWork")
+    students_pages = _fixture_required_page_list(payload, "studentsPages", item_key="students")
+    student_submissions_pages = _fixture_required_page_list(
+        payload,
+        "studentSubmissionsPages",
+        item_key="studentSubmissions",
+    )
+    return ClassroomFetchFixture(
+        course=course,
+        course_work=course_work,
+        students_pages=students_pages,
+        student_submissions_pages=student_submissions_pages,
+    )
+
+
+class _FixtureRequest:
+    def __init__(self, response: dict[str, Any]) -> None:
+        self._response = response
+
+    def execute(self) -> dict[str, Any]:
+        return dict(self._response)
+
+
+class _FixtureStudentsResource:
+    def __init__(self, pages: list[dict[str, Any]]) -> None:
+        self._page_lookup = _build_fixture_page_lookup(pages, item_key="students")
+
+    def list(self, **kwargs: Any) -> _FixtureRequest:
+        page_token = _normalize_fixture_page_token(kwargs.get("pageToken"))
+        return _FixtureRequest(_fixture_page_response(self._page_lookup, page_token))
+
+
+class _FixtureStudentSubmissionsResource:
+    def __init__(self, pages: list[dict[str, Any]]) -> None:
+        self._page_lookup = _build_fixture_page_lookup(
+            pages,
+            item_key="studentSubmissions",
+        )
+
+    def list(self, **kwargs: Any) -> _FixtureRequest:
+        page_token = _normalize_fixture_page_token(kwargs.get("pageToken"))
+        return _FixtureRequest(_fixture_page_response(self._page_lookup, page_token))
+
+
+class _FixtureCourseWorkResource:
+    def __init__(
+        self,
+        *,
+        course_work: dict[str, Any],
+        student_submissions_pages: list[dict[str, Any]],
+    ) -> None:
+        self._course_work = course_work
+        self._student_submissions_pages = student_submissions_pages
+
+    def get(self, **kwargs: Any) -> _FixtureRequest:
+        _assert_fixture_identifier(
+            kwargs.get("courseId"),
+            _fixture_required_str(self._course_work, "courseId"),
+            field_name="courseId",
+        )
+        _assert_fixture_identifier(
+            kwargs.get("id"),
+            _fixture_required_str(self._course_work, "id", "courseWorkId"),
+            field_name="courseWorkId",
+        )
+        return _FixtureRequest(self._course_work)
+
+    def studentSubmissions(self) -> _FixtureStudentSubmissionsResource:
+        return _FixtureStudentSubmissionsResource(self._student_submissions_pages)
+
+
+class _FixtureCoursesResource:
+    def __init__(
+        self,
+        *,
+        course: dict[str, Any],
+        course_work: dict[str, Any],
+        students_pages: list[dict[str, Any]],
+        student_submissions_pages: list[dict[str, Any]],
+    ) -> None:
+        self._course = course
+        self._course_work = course_work
+        self._students_pages = students_pages
+        self._student_submissions_pages = student_submissions_pages
+
+    def get(self, **kwargs: Any) -> _FixtureRequest:
+        _assert_fixture_identifier(
+            kwargs.get("id"),
+            _fixture_required_str(self._course, "id", "courseId"),
+            field_name="courseId",
+        )
+        return _FixtureRequest(self._course)
+
+    def students(self) -> _FixtureStudentsResource:
+        return _FixtureStudentsResource(self._students_pages)
+
+    def courseWork(self) -> _FixtureCourseWorkResource:
+        return _FixtureCourseWorkResource(
+            course_work=self._course_work,
+            student_submissions_pages=self._student_submissions_pages,
+        )
+
+
+class _FixtureClassroomService:
+    def __init__(
+        self,
+        *,
+        course: dict[str, Any],
+        course_work: dict[str, Any],
+        students_pages: list[dict[str, Any]],
+        student_submissions_pages: list[dict[str, Any]],
+    ) -> None:
+        self._courses = _FixtureCoursesResource(
+            course=course,
+            course_work=course_work,
+            students_pages=students_pages,
+            student_submissions_pages=student_submissions_pages,
+        )
+
+    def courses(self) -> _FixtureCoursesResource:
+        return self._courses
+
+
 def build_student_name_lookup(raw_students: list[dict[str, Any]]) -> dict[str, str]:
     lookup: dict[str, str] = {}
     for student in raw_students:
@@ -280,3 +437,100 @@ def build_post_only_client(
         allow_interactive=allow_interactive,
     )
     return GoogleClassroomClient(service)
+
+
+def _fixture_required_dict(raw: dict[str, Any], key: str) -> dict[str, Any]:
+    value = raw.get(key)
+    if not isinstance(value, dict):
+        raise ValueError(f"Fixture field {key} must be an object.")
+    return value
+
+
+def _fixture_required_page_list(
+    raw: dict[str, Any],
+    key: str,
+    *,
+    item_key: str,
+) -> list[dict[str, Any]]:
+    value = raw.get(key)
+    if not isinstance(value, list) or not value:
+        raise ValueError(f"Fixture field {key} must be a non-empty list.")
+
+    pages: list[dict[str, Any]] = []
+    for index, page in enumerate(value):
+        if not isinstance(page, dict):
+            raise ValueError(f"Fixture page {key}[{index}] must be an object.")
+        items = page.get(item_key, [])
+        if not isinstance(items, list):
+            raise ValueError(f"Fixture page {key}[{index}].{item_key} must be a list.")
+        next_page_token = page.get("nextPageToken")
+        if next_page_token is not None and not isinstance(next_page_token, str):
+            raise ValueError(
+                f"Fixture page {key}[{index}].nextPageToken must be a string when present."
+            )
+        page_token = page.get("pageToken")
+        if page_token is not None and not isinstance(page_token, str):
+            raise ValueError(
+                f"Fixture page {key}[{index}].pageToken must be a string when present."
+            )
+        pages.append(dict(page))
+    return pages
+
+
+def _fixture_required_str(raw: dict[str, Any], *keys: str) -> str:
+    for key in keys:
+        value = raw.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    joined = ", ".join(keys)
+    raise ValueError(f"Fixture is missing required string field: {joined}.")
+
+
+def _build_fixture_page_lookup(
+    pages: list[dict[str, Any]],
+    *,
+    item_key: str,
+) -> dict[str | None, dict[str, Any]]:
+    lookup: dict[str | None, dict[str, Any]] = {}
+    for index, page in enumerate(pages):
+        page_token = _normalize_fixture_page_token(page.get("pageToken"))
+        if page_token in lookup:
+            raise ValueError(f"Fixture page token is duplicated for {item_key}[{index}].")
+        response = dict(page)
+        response.pop("pageToken", None)
+        lookup[page_token] = response
+
+    if None not in lookup:
+        raise ValueError(f"Fixture pages for {item_key} must include the first page.")
+
+    for response in lookup.values():
+        next_page_token = _normalize_fixture_page_token(response.get("nextPageToken"))
+        if next_page_token is not None and next_page_token not in lookup:
+            raise ValueError(
+                f"Fixture nextPageToken {next_page_token} for {item_key} does not resolve."
+            )
+    return lookup
+
+
+def _fixture_page_response(
+    page_lookup: dict[str | None, dict[str, Any]],
+    page_token: str | None,
+) -> dict[str, Any]:
+    response = page_lookup.get(page_token)
+    if response is None:
+        raise ValueError(f"Unknown fixture page token: {page_token}.")
+    return response
+
+
+def _normalize_fixture_page_token(value: Any) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError("Fixture pageToken must be a string when present.")
+    normalized = value.strip()
+    return normalized or None
+
+
+def _assert_fixture_identifier(value: Any, expected: str, *, field_name: str) -> None:
+    if str(value or "").strip() != expected:
+        raise ValueError(f"Fixture {field_name} mismatch: expected {expected}.")

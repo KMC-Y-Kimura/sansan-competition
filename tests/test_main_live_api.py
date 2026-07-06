@@ -1,15 +1,20 @@
 from __future__ import annotations
 
 import json
+import os
 import threading
+import tempfile
 import types
 import unittest
+from pathlib import Path
 from urllib import error, request
 from unittest.mock import patch
 
 import main as app_main
+import sansan_competition.oauth as oauth_module
 from sansan_competition.contract import (
     build_reminder_generation_response,
+    build_submission_analysis_response,
     validate_agent_output,
 )
 from sansan_competition.execution.errors import AgentError, ErrorCode
@@ -74,6 +79,15 @@ class LiveApiTests(unittest.TestCase):
         host, port = self.server.server_address
         self.base_url = f"http://{host}:{port}"
         self.course, self.course_work, self.analysis = app_main.build_sample_analysis()
+        self.oauth_config = app_main.GoogleOAuthConfig(
+            credentials_path=Path("credentials.json"),
+            token_path=Path("token.json"),
+        )
+        self.direct_oauth_plan = types.SimpleNamespace(
+            config=self.oauth_config,
+            authorization_mode="direct_redirect",
+            authorization_hint="Google の認可画面をこのブラウザで開きます。",
+        )
 
     def tearDown(self) -> None:
         self.server.shutdown()
@@ -89,17 +103,18 @@ class LiveApiTests(unittest.TestCase):
         *,
         method: str = "GET",
         payload: dict | None = None,
+        headers: dict | None = None,
     ) -> tuple[int, dict]:
         body = None
-        headers = {}
+        request_headers = dict(headers or {})
         if payload is not None:
             body = json.dumps(payload).encode("utf-8")
-            headers["Content-Type"] = "application/json"
+            request_headers["Content-Type"] = "application/json"
 
         req = request.Request(
             f"{self.base_url}{path}",
             data=body,
-            headers=headers,
+            headers=request_headers,
             method=method,
         )
         try:
@@ -219,10 +234,17 @@ class LiveApiTests(unittest.TestCase):
         self.assertEqual(payload["error"]["code"], "CLASSROOM_API_NOT_FOUND")
 
     def test_oauth_start_reports_authorized_when_cached_token_is_ready(self) -> None:
-        with patch.object(
-            app_main,
-            "load_google_user_credentials",
-            return_value=object(),
+        with (
+            patch.object(
+                app_main,
+                "resolve_google_oauth_runtime_plan",
+                return_value=self.direct_oauth_plan,
+            ),
+            patch.object(
+                app_main,
+                "load_google_user_credentials",
+                return_value=object(),
+            ),
         ):
             status_code, payload = self._request_json("/api/live/oauth/start?intent=read")
 
@@ -231,10 +253,17 @@ class LiveApiTests(unittest.TestCase):
         self.assertEqual(payload["intent"], "read")
 
     def test_oauth_check_reports_authorized_when_cached_token_is_ready(self) -> None:
-        with patch.object(
-            app_main,
-            "load_google_user_credentials",
-            return_value=object(),
+        with (
+            patch.object(
+                app_main,
+                "resolve_google_oauth_runtime_plan",
+                return_value=self.direct_oauth_plan,
+            ),
+            patch.object(
+                app_main,
+                "load_google_user_credentials",
+                return_value=object(),
+            ),
         ):
             status_code, payload = self._request_json("/api/live/oauth/check?intent=read")
 
@@ -243,10 +272,17 @@ class LiveApiTests(unittest.TestCase):
         self.assertEqual(payload["intent"], "read")
 
     def test_oauth_check_reports_authorization_required_without_creating_session(self) -> None:
-        with patch.object(
-            app_main,
-            "load_google_user_credentials",
-            side_effect=app_main.GoogleOAuthAuthorizationRequiredError("required"),
+        with (
+            patch.object(
+                app_main,
+                "resolve_google_oauth_runtime_plan",
+                return_value=self.direct_oauth_plan,
+            ),
+            patch.object(
+                app_main,
+                "load_google_user_credentials",
+                side_effect=app_main.GoogleOAuthAuthorizationRequiredError("required"),
+            ),
         ):
             status_code, payload = self._request_json("/api/live/oauth/check?intent=read")
 
@@ -267,6 +303,11 @@ class LiveApiTests(unittest.TestCase):
         with (
             patch.object(
                 app_main,
+                "resolve_google_oauth_runtime_plan",
+                return_value=self.direct_oauth_plan,
+            ),
+            patch.object(
+                app_main,
                 "load_google_user_credentials",
                 side_effect=app_main.GoogleOAuthAuthorizationRequiredError("required"),
             ),
@@ -280,6 +321,7 @@ class LiveApiTests(unittest.TestCase):
 
         self.assertEqual(status_code, 200)
         self.assertEqual(payload["status"], "authorization_required")
+        self.assertEqual(payload["authorizationMode"], "direct_redirect")
         self.assertEqual(
             payload["authorizationUrl"],
             "https://accounts.example.test/auth",
@@ -294,9 +336,247 @@ class LiveApiTests(unittest.TestCase):
                 app_main.OAUTH_INTENT_SCOPES["read"],
             )
             self.assertEqual(
+                app_main.OAUTH_SESSIONS["oauth-state-123"]["redirectUri"],
+                f"{self.base_url}{app_main.OAUTH_CALLBACK_PATH}",
+            )
+            self.assertEqual(
                 app_main.OAUTH_SESSIONS["oauth-state-123"]["codeVerifier"],
                 "verifier-123",
             )
+
+    def test_oauth_config_reports_missing_client_file(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with patch.dict(
+                os.environ,
+                {
+                    "SANSAN_GOOGLE_OAUTH_CONFIG_DIR": temp_dir,
+                    "SANSAN_GOOGLE_OAUTH_CLIENT_FILE": str(Path(temp_dir) / "credentials.json"),
+                    "SANSAN_GOOGLE_OAUTH_TOKEN_FILE": str(Path(temp_dir) / "token.json"),
+                },
+                clear=False,
+            ):
+                status_code, payload = self._request_json("/api/live/oauth/config")
+
+        self.assertEqual(status_code, 200)
+        self.assertEqual(payload["status"], "configuration_required")
+        self.assertFalse(payload["clientFilePresent"])
+        self.assertEqual(
+            payload["redirectUri"],
+            f"{self.base_url}{app_main.OAUTH_CALLBACK_PATH}",
+        )
+
+    def test_oauth_config_upload_persists_web_client_and_marks_ready(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with patch.dict(
+                os.environ,
+                {
+                    "SANSAN_GOOGLE_OAUTH_CONFIG_DIR": temp_dir,
+                    "SANSAN_GOOGLE_OAUTH_CLIENT_FILE": str(Path(temp_dir) / "credentials.json"),
+                    "SANSAN_GOOGLE_OAUTH_TOKEN_FILE": str(Path(temp_dir) / "token.json"),
+                },
+                clear=False,
+            ):
+                status_code, payload = self._request_json(
+                    "/api/live/oauth/config",
+                    method="POST",
+                    payload={
+                        "clientFileContent": json.dumps(
+                            {
+                                "web": {
+                                    "client_id": "web-client-id",
+                                    "client_secret": "secret",
+                                    "redirect_uris": [
+                                        f"{self.base_url}{app_main.OAUTH_CALLBACK_PATH}"
+                                    ],
+                                }
+                            }
+                        )
+                    },
+                )
+
+        self.assertEqual(status_code, 200)
+        self.assertEqual(payload["status"], "ready")
+        self.assertTrue(payload["clientFilePresent"])
+        self.assertEqual(payload["clientType"], "web")
+
+    def test_oauth_config_supports_local_browser_assist_for_remote_installed_client(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            credentials_path = Path(temp_dir) / "credentials.json"
+            credentials_path.write_text(
+                json.dumps({"installed": {"client_id": "desktop-client-id"}}),
+                encoding="utf-8",
+            )
+            with patch.dict(
+                os.environ,
+                {
+                    "SANSAN_GOOGLE_OAUTH_CONFIG_DIR": temp_dir,
+                    "SANSAN_GOOGLE_OAUTH_CLIENT_FILE": str(credentials_path),
+                    "SANSAN_GOOGLE_OAUTH_TOKEN_FILE": str(Path(temp_dir) / "token.json"),
+                },
+                clear=False,
+            ):
+                status_code, payload = self._request_json(
+                    "/api/live/oauth/config",
+                    headers={"Host": "classroom.example.test"},
+                )
+
+        self.assertEqual(status_code, 200)
+        self.assertEqual(payload["status"], "ready")
+        self.assertEqual(payload["authorizationMode"], "local_browser_assisted")
+        self.assertIn("サーバーを実行している端末", payload["authorizationHint"])
+
+    def test_oauth_config_prefers_forwarded_host_for_redirect_uri(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with patch.dict(
+                os.environ,
+                {
+                    "SANSAN_GOOGLE_OAUTH_CONFIG_DIR": temp_dir,
+                    "SANSAN_GOOGLE_OAUTH_CLIENT_FILE": str(Path(temp_dir) / "credentials.json"),
+                    "SANSAN_GOOGLE_OAUTH_TOKEN_FILE": str(Path(temp_dir) / "token.json"),
+                },
+                clear=False,
+            ):
+                status_code, payload = self._request_json(
+                    "/api/live/oauth/config",
+                    headers={
+                        "Host": "fh-example---service-a.run.app",
+                        "X-Forwarded-Proto": "https",
+                        "X-Forwarded-Host": "classroom-ai-kmc.web.app",
+                    },
+                )
+
+        self.assertEqual(status_code, 200)
+        self.assertEqual(
+            payload["redirectUri"],
+            "https://classroom-ai-kmc.web.app/oauth/google/callback",
+        )
+        self.assertEqual(payload["serverBaseUrl"], "https://classroom-ai-kmc.web.app")
+
+    def test_oauth_config_prefers_legacy_installed_client_for_loopback(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config_dir = Path(temp_dir) / "config"
+            config_dir.mkdir()
+            (config_dir / "credentials.json").write_text(
+                json.dumps(
+                    {
+                        "web": {
+                            "client_id": "web-client-id",
+                            "client_secret": "secret",
+                            "redirect_uris": [],
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            legacy_client_path = Path(temp_dir) / "repo-credentials.json"
+            legacy_client_path.write_text(
+                json.dumps(
+                    {
+                        "installed": {
+                            "client_id": "desktop-client-id",
+                            "redirect_uris": ["http://localhost"],
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with patch.dict(
+                os.environ,
+                {
+                    "SANSAN_GOOGLE_OAUTH_CONFIG_DIR": str(config_dir),
+                },
+                clear=False,
+            ), patch.object(
+                oauth_module,
+                "LEGACY_GOOGLE_OAUTH_CLIENT_PATH",
+                legacy_client_path,
+            ), patch.object(
+                oauth_module,
+                "LEGACY_GOOGLE_OAUTH_TOKEN_PATH",
+                Path(temp_dir) / "repo-token.json",
+            ):
+                status_code, payload = self._request_json("/api/live/oauth/config")
+
+        self.assertEqual(status_code, 200)
+        self.assertEqual(payload["status"], "ready")
+        self.assertEqual(payload["clientType"], "installed")
+        self.assertEqual(payload["clientFilePath"], str(legacy_client_path))
+
+    def test_oauth_start_prefers_forwarded_host_for_redirect_uri(self) -> None:
+        auth_request = types.SimpleNamespace(
+            authorization_url="https://accounts.example.test/auth",
+            state="oauth-state-123",
+            code_verifier="verifier-123",
+            scopes=app_main.OAUTH_INTENT_SCOPES["read"],
+        )
+        with patch.object(
+            app_main,
+            "resolve_google_oauth_runtime_plan",
+            return_value=self.direct_oauth_plan,
+        ), patch.object(
+            app_main,
+            "load_google_user_credentials",
+            side_effect=app_main.GoogleOAuthAuthorizationRequiredError("required"),
+        ), patch.object(
+            app_main,
+            "start_google_oauth_authorization",
+            return_value=auth_request,
+        ):
+            status_code, payload = self._request_json(
+                "/api/live/oauth/start?intent=read",
+                headers={
+                    "Host": "fh-example---service-a.run.app",
+                    "X-Forwarded-Proto": "https",
+                    "X-Forwarded-Host": "classroom-ai-kmc.web.app",
+                },
+            )
+
+        self.assertEqual(status_code, 200)
+        self.assertEqual(payload["status"], "authorization_required")
+        with app_main.OAUTH_SESSIONS_LOCK:
+            self.assertEqual(
+                app_main.OAUTH_SESSIONS["oauth-state-123"]["redirectUri"],
+                "https://classroom-ai-kmc.web.app/oauth/google/callback",
+            )
+
+    def test_oauth_start_uses_local_browser_assist_for_remote_installed_client(self) -> None:
+        local_browser_plan = types.SimpleNamespace(
+            config=self.oauth_config,
+            authorization_mode="local_browser_assisted",
+            authorization_hint=(
+                "この端末ではなく、サーバーを実行している端末の既定ブラウザで "
+                "Google の認可画面を開きます。"
+            ),
+        )
+        with patch.object(
+            app_main,
+            "resolve_google_oauth_runtime_plan",
+            return_value=local_browser_plan,
+        ), patch.object(
+            app_main,
+            "load_google_user_credentials",
+            side_effect=app_main.GoogleOAuthAuthorizationRequiredError("required"),
+        ), patch.object(
+            app_main,
+            "start_local_browser_oauth_session",
+        ) as start_local_browser:
+            status_code, payload = self._request_json(
+                "/api/live/oauth/start?intent=read",
+                headers={"Host": "192.168.1.20:8000"},
+            )
+
+        self.assertEqual(status_code, 200)
+        self.assertEqual(payload["status"], "authorization_required")
+        self.assertEqual(payload["authorizationMode"], "local_browser_assisted")
+        self.assertIn("サーバーを実行している端末", payload["authorizationHint"])
+        self.assertIn("/api/live/oauth/status?state=", payload["statusUrl"])
+        start_local_browser.assert_called_once()
+        with app_main.OAUTH_SESSIONS_LOCK:
+            self.assertEqual(len(app_main.OAUTH_SESSIONS), 1)
+            state, session = next(iter(app_main.OAUTH_SESSIONS.items()))
+            self.assertEqual(payload["statusUrl"], f"/api/live/oauth/status?state={state}")
+            self.assertEqual(session["authorizationMode"], "local_browser_assisted")
+            self.assertEqual(session["status"], "pending")
 
     def test_oauth_status_returns_pending_session(self) -> None:
         with app_main.OAUTH_SESSIONS_LOCK:
@@ -366,6 +646,10 @@ class LiveApiTests(unittest.TestCase):
         self.assertEqual(payload["agentTaskType"], "SUBMISSION_ANALYSIS")
         self.assertEqual(payload["status"], "success")
         self.assertEqual(validate_agent_output(payload), [])
+        self.assertEqual(
+            payload,
+            build_submission_analysis_response(payload["requestId"], self.analysis),
+        )
 
     def test_submission_analysis_endpoint_maps_agent_error_to_contract_error(self) -> None:
         with (
@@ -422,6 +706,17 @@ class LiveApiTests(unittest.TestCase):
         self.assertEqual(payload["agentTaskType"], "REMINDER_GENERATION")
         self.assertTrue(payload["approval"]["required"])
         self.assertEqual(validate_agent_output(payload), [])
+        self.assertEqual(
+            payload,
+            build_reminder_generation_response(
+                payload["requestId"],
+                self.analysis,
+                reminder_title=app_main.build_default_reminder_title(
+                    self.analysis.course_work
+                ),
+                reminder_body=app_main.build_default_reminder_body(self.analysis),
+            ),
+        )
 
     def test_reminder_generation_endpoint_returns_partial_success_payload(self) -> None:
         _, _, partial_analysis = app_main.build_partial_sample_analysis()

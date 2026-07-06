@@ -43,13 +43,34 @@ const workflowSteps = [
 const app = document.querySelector("#app");
 let oauthPollGeneration = 0;
 const manualLogoutStorageKey = "sansan-classroom-manual-logout";
+const oauthStatusPollIntervalMs = 3000;
 
 const emptyOAuthDialog = {
   open: false,
   intent: "read",
+  authorizationMode: "",
   authorizationUrl: "",
   statusUrl: "",
+  authorizationHint: "",
   errorMessage: "",
+};
+
+const emptyOAuthSetup = {
+  loaded: false,
+  status: "unknown",
+  readyForOAuth: false,
+  clientFilePresent: false,
+  clientFilePath: "",
+  clientType: "",
+  clientId: "",
+  authorizedRedirectUris: [],
+  redirectUri: "",
+  serverBaseUrl: "",
+  remoteBrowserSession: false,
+  authorizationMode: "",
+  authorizationHint: "",
+  recommendedAction: "",
+  uploadErrorMessage: "",
 };
 
 const state = {
@@ -71,12 +92,13 @@ const state = {
   postMessage: "",
   postMessageTone: "success",
   oauthDialog: { ...emptyOAuthDialog },
+  oauthSetup: { ...emptyOAuthSetup },
 };
 
 state.agentOutput = normalizeAgentOutput(buildPlaceholderOutput());
 resetEditableValues();
 render();
-void bootstrapGoogleSession();
+void bootstrap();
 
 function buildPlaceholderOutput({
   title = "提出状況を取得してください",
@@ -452,6 +474,7 @@ function render() {
 }
 
 function renderLogin() {
+  const connectDisabled = state.oauthSetup.loaded && !state.oauthSetup.readyForOAuth;
   return `
     <main class="login">
       <section class="login-panel">
@@ -475,9 +498,64 @@ function renderLogin() {
               )}</p>`
             : ""
         }
-        <button class="button primary" data-action="login">Google Classroomに接続</button>
+        ${renderOAuthSetupPanel()}
+        <button class="button primary" data-action="login" ${connectDisabled ? "disabled" : ""}>Google Classroomに接続</button>
       </section>
     </main>
+  `;
+}
+
+function renderOAuthSetupPanel() {
+  if (!state.oauthSetup.loaded) {
+    return "";
+  }
+
+  const setup = state.oauthSetup;
+  const notices = [];
+  if (setup.recommendedAction) {
+    notices.push(
+      `<div class="${setup.readyForOAuth ? "warning-item" : "error-item"}"><strong>OAuth設定</strong><span>${escapeHtml(setup.recommendedAction)}</span></div>`,
+    );
+  }
+  if (setup.uploadErrorMessage) {
+    notices.push(
+      `<div class="error-item"><strong>アップロード</strong><span>${escapeHtml(setup.uploadErrorMessage)}</span></div>`,
+    );
+  }
+
+  const currentClient = setup.clientFilePresent
+    ? `現在の client: ${oauthClientTypeLabel(setup.clientType)} / ${setup.clientFilePath}`
+    : "このサーバには OAuth client JSON がまだ登録されていません。";
+  const remoteNote =
+    setup.authorizationMode === "local_browser_assisted"
+      ? "この構成では、認可画面はサーバーを実行している端末の既定ブラウザで開きます。"
+      : setup.remoteBrowserSession
+        ? "別端末ブラウザ自身で Google 認可を完了したい場合は、HTTPS ドメイン付きの Web application クライアントが必要です。"
+        : "同一端末から使う場合は installed / desktop app クライアントも利用できます。";
+  const authorizationHint = setup.authorizationHint
+    ? `<p class="subtle" style="margin: 0 0 10px;">${escapeHtml(setup.authorizationHint)}</p>`
+    : "";
+
+  return `
+    <section class="state-panel" style="margin: 18px 0;">
+      <div>
+        <h2 style="margin: 0 0 8px;">OAuth 設定</h2>
+        <p class="subtle" style="margin: 0 0 10px;">${escapeHtml(currentClient)}</p>
+        <p class="subtle" style="margin: 0 0 10px;">${escapeHtml(remoteNote)}</p>
+        ${authorizationHint}
+        <p class="subtle" style="margin: 0 0 14px;">登録すべき redirect URI: ${escapeHtml(setup.redirectUri || "未取得")}</p>
+      </div>
+      ${notices.length > 0 ? `<div class="warning-list">${notices.join("")}</div>` : ""}
+      <div class="action-row" style="margin-top: 14px;">
+        <label class="button" for="oauth-client-file-input">OAuth client JSON を選択</label>
+        <input id="oauth-client-file-input" data-action="oauth-client-upload" type="file" accept=".json,application/json" style="display:none" />
+        ${
+          setup.clientFilePresent
+            ? `<button class="button ghost" data-action="refresh-oauth-setup">設定を再確認</button>`
+            : ""
+        }
+      </div>
+    </section>
   `;
 }
 
@@ -487,6 +565,23 @@ function renderOAuthDialog() {
   }
 
   const copy = oauthIntentCopy(state.oauthDialog.intent);
+  const localBrowserAssisted =
+    state.oauthDialog.authorizationMode === "local_browser_assisted";
+  const primaryMessage = localBrowserAssisted
+    ? state.oauthDialog.authorizationHint ||
+      "サーバーを実行している端末の既定ブラウザで Google の認可画面を開いています。許可後はこの画面が自動で進みます。"
+    : "Google の認可画面は別ウィンドウで開きます。許可後はこの画面に戻ってください。";
+  const actions = localBrowserAssisted
+    ? `<div class="action-row" style="margin-top: 18px;">
+          <button class="button ghost" data-action="refresh-oauth-setup">状態を更新</button>
+        </div>`
+    : `<div class="action-row" style="margin-top: 18px;">
+          <button class="button primary" data-action="oauth-open">認可画面を開く</button>
+          <a class="button" href="${escapeHtml(state.oauthDialog.authorizationUrl)}" target="_blank" rel="noopener noreferrer">別タブで開く</a>
+        </div>`;
+  const footerNote = localBrowserAssisted
+    ? "サーバー端末でブラウザが開かない場合は、その端末の既定ブラウザ設定を確認してください。"
+    : "画面が開かない場合は、ブラウザのポップアップブロック設定を確認してください。";
   return `
     <div class="modal-backdrop" role="presentation">
       <section class="modal-card" role="dialog" aria-modal="true" aria-labelledby="oauth_dialog_title">
@@ -500,7 +595,7 @@ function renderOAuthDialog() {
         <p class="subtle">${escapeHtml(copy.description)}</p>
         <div class="warning-list">
           <div class="warning-item">
-            Google の認可画面は別ウィンドウで開きます。許可後はこの画面に戻ってください。
+            ${escapeHtml(primaryMessage)}
           </div>
           ${
             state.oauthDialog.errorMessage
@@ -508,12 +603,9 @@ function renderOAuthDialog() {
               : ""
           }
         </div>
-        <div class="action-row" style="margin-top: 18px;">
-          <button class="button primary" data-action="oauth-open">認可画面を開く</button>
-          <a class="button" href="${escapeHtml(state.oauthDialog.authorizationUrl)}" target="_blank" rel="noopener noreferrer">別タブで開く</a>
-        </div>
+        ${actions}
         <p class="subtle" style="margin: 14px 0 0;">
-          画面が開かない場合は、ブラウザのポップアップブロック設定を確認してください。
+          ${escapeHtml(footerNote)}
         </p>
       </section>
     </div>
@@ -1190,6 +1282,86 @@ function oauthIntentCopy(intent) {
   };
 }
 
+function oauthClientTypeLabel(clientType) {
+  if (clientType === "web") {
+    return "web application";
+  }
+  if (clientType === "installed") {
+    return "installed / desktop app";
+  }
+  return "未設定";
+}
+
+function normalizeOAuthSetup(payload) {
+  return {
+    loaded: true,
+    status: String(payload?.status ?? "unknown"),
+    readyForOAuth: Boolean(payload?.readyForOAuth),
+    clientFilePresent: Boolean(payload?.clientFilePresent),
+    clientFilePath: String(payload?.clientFilePath ?? ""),
+    clientType: String(payload?.clientType ?? ""),
+    clientId: String(payload?.clientId ?? ""),
+    authorizedRedirectUris: Array.isArray(payload?.authorizedRedirectUris)
+      ? payload.authorizedRedirectUris.map((value) => String(value))
+      : [],
+    redirectUri: String(payload?.redirectUri ?? ""),
+    serverBaseUrl: String(payload?.serverBaseUrl ?? ""),
+    remoteBrowserSession: Boolean(payload?.remoteBrowserSession),
+    authorizationMode: String(payload?.authorizationMode ?? ""),
+    authorizationHint: String(payload?.authorizationHint ?? ""),
+    recommendedAction: String(payload?.recommendedAction ?? ""),
+    uploadErrorMessage: "",
+  };
+}
+
+async function bootstrap() {
+  await refreshOAuthSetup();
+  await bootstrapGoogleSession();
+}
+
+async function refreshOAuthSetup() {
+  try {
+    const payload = await apiFetchJson("/api/live/oauth/config");
+    state.oauthSetup = normalizeOAuthSetup(payload);
+  } catch (error) {
+    state.oauthSetup = {
+      ...emptyOAuthSetup,
+      loaded: true,
+      uploadErrorMessage: error?.message ?? "OAuth 設定を確認できませんでした。",
+    };
+  }
+  render();
+  return state.oauthSetup;
+}
+
+async function uploadOAuthClientFile(file) {
+  if (!file) {
+    return;
+  }
+
+  setLoading("OAuth client JSON を登録しています。");
+  render();
+  try {
+    const clientFileContent = await file.text();
+    const payload = await apiFetchJson("/api/live/oauth/config", {
+      method: "POST",
+      body: JSON.stringify({ clientFileContent }),
+    });
+    state.oauthSetup = normalizeOAuthSetup(payload);
+    state.scenario = scenarioModes.ready;
+    clearLoading();
+    render();
+  } catch (error) {
+    clearLoading();
+    state.oauthSetup = {
+      ...state.oauthSetup,
+      loaded: true,
+      uploadErrorMessage: error?.message ?? "OAuth client JSON を登録できませんでした。",
+    };
+    render();
+  }
+}
+
 function resetOAuthDialog() {
   state.oauthDialog = { ...emptyOAuthDialog };
 }
@@ -1210,9 +1382,27 @@ function openOAuthPopupWindow() {
 }
 
 async function ensureGoogleAuthorization(intent) {
+  const oauthSetup = await refreshOAuthSetup();
+  if (!oauthSetup.readyForOAuth) {
+    const error = new Error(
+      oauthSetup.recommendedAction || "OAuth 設定が完了していません。",
+    );
+    error.setupRequired = true;
+    throw error;
+  }
+
   const payload = await apiFetchJson(
     `/api/live/oauth/start?intent=${encodeURIComponent(intent)}`,
   );
+  if (payload.readyForOAuth === false || payload.status === "configuration_required") {
+    state.oauthSetup = normalizeOAuthSetup(payload);
+    render();
+    const error = new Error(
+      state.oauthSetup.recommendedAction || "OAuth 設定が完了していません。",
+    );
+    error.setupRequired = true;
+    throw error;
+  }
   if (payload.status === "authorized") {
     oauthPollGeneration += 1;
     resetOAuthDialog();
@@ -1227,12 +1417,17 @@ async function ensureGoogleAuthorization(intent) {
   state.oauthDialog = {
     open: true,
     intent,
+    authorizationMode: payload.authorizationMode ?? "",
     authorizationUrl: payload.authorizationUrl ?? "",
     statusUrl: payload.statusUrl ?? "",
+    authorizationHint: payload.authorizationHint ?? "",
     errorMessage: "",
   };
   clearLoading();
   render();
+  if (state.oauthDialog.authorizationMode !== "local_browser_assisted") {
+    openOAuthPopupWindow();
+  }
   await waitForOAuthCompletion(generation, payload.statusUrl ?? "");
 }
 
@@ -1257,7 +1452,9 @@ async function waitForOAuthCompletion(generation, statusUrl) {
       render();
       throw new Error(state.oauthDialog.errorMessage);
     }
-    await new Promise((resolve) => window.setTimeout(resolve, 1000));
+    await new Promise((resolve) =>
+      window.setTimeout(resolve, oauthStatusPollIntervalMs),
+    );
   }
 
   state.oauthDialog.errorMessage =
@@ -1352,6 +1549,7 @@ async function connectGoogle({ skipAuthorizationCheck = false } = {}) {
       handleRequestFailure(error, {
         title: "Google Classroom への接続に失敗しました",
         recommendedAction:
+          state.oauthSetup.recommendedAction ||
           "OAuth の認可画面を開いて、Google Classroom の読み取り権限を許可してください。",
         loggedOut: true,
         view: "login",
@@ -1365,7 +1563,8 @@ async function connectGoogle({ skipAuthorizationCheck = false } = {}) {
   } catch (error) {
     handleRequestFailure(error, {
       title: "コース一覧の取得に失敗しました",
-      recommendedAction: "credentials.json、token.json、Google Classroom の権限設定を確認してください。",
+      recommendedAction:
+        "OAuth client 設定、保存済み token、Google Classroom の権限設定を確認してください。",
       loggedOut: true,
       view: "login",
     });
@@ -1374,6 +1573,9 @@ async function connectGoogle({ skipAuthorizationCheck = false } = {}) {
 
 async function bootstrapGoogleSession() {
   if (window.sessionStorage.getItem(manualLogoutStorageKey) === "1") {
+    return;
+  }
+  if (!state.oauthSetup.readyForOAuth) {
     return;
   }
 
@@ -1717,6 +1919,20 @@ function bindEvents() {
       state.scenario = scenarioModes.ready;
       clearLoading();
       render();
+    });
+  });
+
+  document.querySelectorAll("[data-action='refresh-oauth-setup']").forEach((button) => {
+    button.addEventListener("click", () => {
+      void refreshOAuthSetup();
+    });
+  });
+
+  document.querySelectorAll("[data-action='oauth-client-upload']").forEach((input) => {
+    input.addEventListener("change", () => {
+      const file = input.files?.[0] ?? null;
+      void uploadOAuthClientFile(file);
+      input.value = "";
     });
   });
 }

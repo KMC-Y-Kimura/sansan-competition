@@ -121,7 +121,7 @@ class AnalysisTests(unittest.TestCase):
         self.assertEqual(counts["lateCount"], 1)
         self.assertEqual(counts["attachmentMissingPossibleCount"], 1)
 
-    def test_build_ai_task_input_omits_personal_identifiers_by_default(self) -> None:
+    def test_build_ai_task_input_uses_privacy_safe_defaults_and_names_only_override(self) -> None:
         analysis = analyze_submissions(
             self.course,
             self.course_work,
@@ -141,8 +141,31 @@ class AnalysisTests(unittest.TestCase):
 
         self.assertNotIn("studentId", first_entry)
         self.assertNotIn("studentName", first_entry)
-        self.assertIn("studentId", detailed_first_entry)
+        self.assertNotIn("studentId", detailed_first_entry)
         self.assertIn("studentName", detailed_first_entry)
+        self.assertEqual(
+            payload["privacy"]["requestedDetailMode"],
+            "pseudonymized_targets_only",
+        )
+        self.assertEqual(
+            payload["privacy"]["appliedDetailMode"],
+            "pseudonymized_targets_only",
+        )
+        self.assertTrue(payload["privacy"]["recommendedForExternalAI"])
+        self.assertEqual(
+            detailed_payload["privacy"]["requestedDetailMode"],
+            "named_targets_only",
+        )
+        self.assertEqual(
+            detailed_payload["privacy"]["appliedDetailMode"],
+            "named_targets_only",
+        )
+        self.assertFalse(detailed_payload["privacy"]["containsStudentIds"])
+        self.assertEqual(
+            detailed_payload["privacy"]["studentIdentifierMode"],
+            "student_name_only",
+        )
+        self.assertFalse(detailed_payload["privacy"]["recommendedForExternalAI"])
 
     def test_build_ai_task_input_for_reminder_targets_only_unsubmitted_students(self) -> None:
         analysis = analyze_submissions(
@@ -184,8 +207,47 @@ class AnalysisTests(unittest.TestCase):
 
         self.assertEqual(payload["focus"]["selectionMode"], "aggregate_only")
         self.assertEqual(payload["facts"]["submissions"], [])
+        self.assertEqual(payload["privacy"]["requestedDetailMode"], "aggregate_only")
         self.assertEqual(payload["privacy"]["appliedDetailMode"], "aggregate_only")
-        self.assertEqual(payload["privacy"]["studentIdentifierMode"], "no_student_identifiers")
+        self.assertEqual(
+            payload["privacy"]["studentIdentifierMode"],
+            "no_student_identifiers",
+        )
+
+    def test_build_ai_task_input_copies_output_formats_and_respects_explicit_empty_list(self) -> None:
+        analysis = analyze_submissions(
+            self.course,
+            self.course_work,
+            self.submissions,
+            now=self.default_now,
+        )
+
+        default_payload = build_ai_task_input(AgentTaskType.WEEKLY_REPORT, analysis)
+        default_payload["delivery"]["outputFormats"].append("unexpected")
+        fresh_default_payload = build_ai_task_input(
+            AgentTaskType.WEEKLY_REPORT,
+            analysis,
+        )
+        self.assertNotIn(
+            "unexpected",
+            fresh_default_payload["delivery"]["outputFormats"],
+        )
+
+        requested_formats = ["markdown"]
+        custom_payload = build_ai_task_input(
+            AgentTaskType.WEEKLY_REPORT,
+            analysis,
+            output_formats=requested_formats,
+        )
+        custom_payload["delivery"]["outputFormats"].append("pdf")
+        self.assertEqual(requested_formats, ["markdown"])
+
+        empty_payload = build_ai_task_input(
+            AgentTaskType.WEEKLY_REPORT,
+            analysis,
+            output_formats=[],
+        )
+        self.assertEqual(empty_payload["delivery"]["outputFormats"], [])
 
     def test_short_answer_submission_is_not_flagged_as_attachment_missing(self) -> None:
         short_answer_work = normalize_coursework(
@@ -353,6 +415,14 @@ class AnalysisTests(unittest.TestCase):
         )
         self.assertEqual(reminder_payload["facts"]["targetSummary"]["targetStudentCount"], 0)
         self.assertEqual(reminder_payload["facts"]["submissions"], [])
+        self.assertEqual(
+            reminder_payload["privacy"]["requestedDetailMode"],
+            "pseudonymized_targets_only",
+        )
+        self.assertEqual(
+            reminder_payload["privacy"]["appliedDetailMode"],
+            "aggregate_only",
+        )
         self.assertTrue(
             any("提出免除" in warning for warning in reminder_payload["facts"]["warnings"])
         )

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 import os
 import sys
@@ -9,16 +10,27 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import sansan_competition.oauth as oauth_module
 from sansan_competition.oauth import (
     CLASSROOM_ANNOUNCEMENTS_SCOPE,
     CLASSROOM_COURSES_READONLY_SCOPE,
     CLASSROOM_COURSEWORK_STUDENTS_READONLY_SCOPE,
     CLASSROOM_STUDENT_SUBMISSIONS_STUDENTS_READONLY_SCOPE,
+    GOOGLE_OAUTH_CLIENT_JSON_B64_ENV,
+    GOOGLE_OAUTH_CLIENT_JSON_ENV,
     GoogleOAuthConfig,
     GoogleOAuthAuthorizationRequiredError,
+    GoogleOAuthConfigurationError,
+    authorize_google_user_via_local_browser,
+    clear_google_oauth_token,
     complete_google_oauth_authorization,
+    default_google_oauth_client_path,
+    inspect_google_oauth_client,
     load_google_user_credentials,
+    resolve_google_oauth_runtime_plan,
+    save_google_oauth_client_file,
     start_google_oauth_authorization,
+    validate_google_oauth_client_for_redirect_uri,
 )
 
 
@@ -58,12 +70,17 @@ class FakeFlow:
         self.redirect_uri: str | None = None
         self.code_verifier: str | None = None
         self.require_relaxed_token_scope = False
-        self.run_local_server_calls: list[int] = []
+        self.run_local_server_calls: list[tuple[int, float | None]] = []
         self.authorization_url_calls: list[dict[str, object]] = []
         self.fetch_token_calls: list[str] = []
 
-    def run_local_server(self, *, port: int) -> FakeCreds:
-        self.run_local_server_calls.append(port)
+    def run_local_server(
+        self,
+        *,
+        port: int,
+        timeout_seconds: float | None = None,
+    ) -> FakeCreds:
+        self.run_local_server_calls.append((port, timeout_seconds))
         return self.credentials
 
     def authorization_url(self, **kwargs: object) -> tuple[str, str]:
@@ -107,7 +124,8 @@ class OAuthTests(unittest.TestCase):
             )[1]
         )
         fake_flow_class = types.SimpleNamespace(
-            from_client_secrets_file=lambda path, scopes, state=None: fake_flow
+            from_client_secrets_file=lambda path, scopes, state=None: fake_flow,
+            from_client_config=lambda config, scopes, state=None: fake_flow,
         )
         fake_request_class = type("FakeRequest", (), {})
 
@@ -153,7 +171,7 @@ class OAuthTests(unittest.TestCase):
             )
 
         self.assertIs(creds, refreshed_creds)
-        self.assertEqual(fake_flow.run_local_server_calls, [0])
+        self.assertEqual(fake_flow.run_local_server_calls, [(0, None)])
         self.assertEqual(
             json.loads(self.token_path.read_text(encoding="utf-8"))["token"],
             "new",
@@ -263,6 +281,224 @@ class OAuthTests(unittest.TestCase):
                     allow_interactive=False,
                 )
 
+    def test_validate_google_oauth_client_rejects_remote_browser_for_installed_client(self) -> None:
+        with self.assertRaises(GoogleOAuthConfigurationError):
+            validate_google_oauth_client_for_redirect_uri(
+                "http://192.168.10.20:8000/oauth/google/callback",
+                config=GoogleOAuthConfig(
+                    credentials_path=self.credentials_path,
+                    token_path=self.token_path,
+                ),
+            )
+
+    def test_resolve_google_oauth_runtime_plan_uses_local_browser_for_remote_installed_client(self) -> None:
+        plan = resolve_google_oauth_runtime_plan(
+            "http://192.168.10.20:8000/oauth/google/callback",
+            remote_browser_session=True,
+            config=GoogleOAuthConfig(
+                credentials_path=self.credentials_path,
+                token_path=self.token_path,
+            ),
+        )
+
+        self.assertEqual(plan.authorization_mode, "local_browser_assisted")
+        self.assertEqual(plan.client_info.client_type, "installed")
+        self.assertIn("サーバーを実行している端末", plan.authorization_hint)
+
+    def test_resolve_google_oauth_runtime_plan_prefers_legacy_installed_client_for_loopback(self) -> None:
+        config_dir = Path(self.temp_dir.name) / "config"
+        config_dir.mkdir()
+        incompatible_default_path = config_dir / "credentials.json"
+        incompatible_default_path.write_text(
+            json.dumps(
+                {
+                    "web": {
+                        "client_id": "web-client-id",
+                        "client_secret": "dummy-secret",
+                        "redirect_uris": [],
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        legacy_client_path = Path(self.temp_dir.name) / "legacy-installed.json"
+        legacy_client_path.write_text(
+            json.dumps(
+                {
+                    "installed": {
+                        "client_id": "desktop-client-id",
+                        "redirect_uris": ["http://localhost"],
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        with patch.dict(
+            os.environ,
+            {oauth_module.GOOGLE_OAUTH_CONFIG_DIR_ENV: str(config_dir)},
+            clear=False,
+        ), patch.object(
+            oauth_module,
+            "LEGACY_GOOGLE_OAUTH_CLIENT_PATH",
+            legacy_client_path,
+        ), patch.object(
+            oauth_module,
+            "LEGACY_GOOGLE_OAUTH_TOKEN_PATH",
+            Path(self.temp_dir.name) / "legacy-token.json",
+        ):
+            plan = resolve_google_oauth_runtime_plan(
+                "http://localhost:8000/oauth/google/callback",
+                remote_browser_session=False,
+            )
+
+        self.assertEqual(plan.client_info.client_type, "installed")
+        self.assertEqual(plan.client_info.client_id, "desktop-client-id")
+        self.assertEqual(plan.client_info.path, legacy_client_path)
+        self.assertEqual(plan.config.credentials_path, legacy_client_path)
+
+    def test_validate_google_oauth_client_requires_registered_redirect_uri_for_web_client(self) -> None:
+        self.credentials_path.write_text(
+            json.dumps(
+                {
+                    "web": {
+                        "client_id": "web-client-id",
+                        "client_secret": "dummy-secret",
+                        "redirect_uris": [
+                            "http://127.0.0.1:8000/oauth/google/callback"
+                        ],
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        with self.assertRaises(GoogleOAuthConfigurationError):
+            validate_google_oauth_client_for_redirect_uri(
+                "http://127.0.0.1:9000/oauth/google/callback",
+                config=GoogleOAuthConfig(
+                    credentials_path=self.credentials_path,
+                    token_path=self.token_path,
+                ),
+            )
+
+    def test_validate_google_oauth_client_rejects_raw_ip_redirect_for_web_client(self) -> None:
+        self.credentials_path.write_text(
+            json.dumps(
+                {
+                    "web": {
+                        "client_id": "web-client-id",
+                        "client_secret": "dummy-secret",
+                        "redirect_uris": [
+                            "http://192.168.1.20:8000/oauth/google/callback"
+                        ],
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        with self.assertRaises(GoogleOAuthConfigurationError):
+            validate_google_oauth_client_for_redirect_uri(
+                "http://192.168.1.20:8000/oauth/google/callback",
+                config=GoogleOAuthConfig(
+                    credentials_path=self.credentials_path,
+                    token_path=self.token_path,
+                ),
+            )
+
+    def test_validate_google_oauth_client_requires_https_for_nonlocal_web_redirect(self) -> None:
+        self.credentials_path.write_text(
+            json.dumps(
+                {
+                    "web": {
+                        "client_id": "web-client-id",
+                        "client_secret": "dummy-secret",
+                        "redirect_uris": [
+                            "http://app.example.com/oauth/google/callback"
+                        ],
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        with self.assertRaises(GoogleOAuthConfigurationError):
+            validate_google_oauth_client_for_redirect_uri(
+                "http://app.example.com/oauth/google/callback",
+                config=GoogleOAuthConfig(
+                    credentials_path=self.credentials_path,
+                    token_path=self.token_path,
+                ),
+            )
+
+    def test_save_google_oauth_client_file_uses_config_dir_and_clear_token_removes_cache(self) -> None:
+        with patch.dict(
+            os.environ,
+            {"SANSAN_GOOGLE_OAUTH_CONFIG_DIR": self.temp_dir.name},
+            clear=False,
+        ):
+            client_info = save_google_oauth_client_file(
+                json.dumps(
+                    {
+                        "web": {
+                            "client_id": "web-client-id",
+                            "client_secret": "dummy-secret",
+                            "redirect_uris": [
+                                "http://127.0.0.1:8000/oauth/google/callback"
+                            ],
+                        }
+                    }
+                )
+            )
+
+            expected_client_path = default_google_oauth_client_path()
+            expected_token_path = expected_client_path.parent / "token.json"
+            expected_token_path.write_text('{"token":"cached"}', encoding="utf-8")
+
+            self.assertEqual(client_info.path, expected_client_path)
+            self.assertTrue(expected_client_path.exists())
+
+            clear_google_oauth_token()
+            self.assertFalse(expected_token_path.exists())
+
+    def test_inspect_google_oauth_client_reads_env_payload(self) -> None:
+        self.credentials_path.unlink()
+        payload = {
+            "web": {
+                "client_id": "web-client-id",
+                "client_secret": "dummy-secret",
+                "redirect_uris": ["https://classroom-ai-kmc.web.app/oauth/google/callback"],
+            }
+        }
+        with patch.dict(
+            os.environ,
+            {
+                GOOGLE_OAUTH_CLIENT_JSON_B64_ENV: base64.b64encode(
+                    json.dumps(payload).encode("utf-8")
+                ).decode("ascii")
+            },
+            clear=False,
+        ):
+            client_info = inspect_google_oauth_client(
+                GoogleOAuthConfig(
+                    credentials_path=self.credentials_path,
+                    token_path=self.token_path,
+                )
+            )
+
+        self.assertTrue(client_info.exists)
+        self.assertEqual(client_info.client_type, "web")
+        self.assertEqual(client_info.client_id, "web-client-id")
+        self.assertEqual(
+            client_info.redirect_uris,
+            ("https://classroom-ai-kmc.web.app/oauth/google/callback",),
+        )
+        self.assertEqual(
+            client_info.path,
+            Path(f"<env:{GOOGLE_OAUTH_CLIENT_JSON_B64_ENV}>"),
+        )
+
     def test_start_google_oauth_authorization_returns_url_and_state(self) -> None:
         cached_creds = FakeCreds(
             valid=True,
@@ -306,6 +542,82 @@ class OAuthTests(unittest.TestCase):
                 }
             ],
         )
+
+    def test_authorize_google_user_via_local_browser_writes_token(self) -> None:
+        cached_creds = FakeCreds(
+            valid=True,
+            scopes=("scope.a",),
+            has_scopes_result=True,
+        )
+        refreshed_creds = FakeCreds(
+            valid=True,
+            scopes=("scope.a", "scope.b"),
+            has_scopes_result=True,
+            token_json='{"token":"new","scopes":["scope.a","scope.b"]}',
+        )
+        modules_patch, fake_flow, _ = self._patch_google_modules(
+            cached_creds=cached_creds,
+            refreshed_creds=refreshed_creds,
+        )
+
+        with modules_patch:
+            creds = authorize_google_user_via_local_browser(
+                ("scope.a", "scope.b"),
+                config=GoogleOAuthConfig(
+                    credentials_path=self.credentials_path,
+                    token_path=self.token_path,
+                ),
+                timeout_seconds=123,
+            )
+
+        self.assertIs(creds, refreshed_creds)
+        self.assertEqual(fake_flow.run_local_server_calls, [(0, 123)])
+        self.assertEqual(
+            json.loads(self.token_path.read_text(encoding="utf-8"))["token"],
+            "new",
+        )
+
+    def test_start_google_oauth_authorization_reads_client_json_from_env(self) -> None:
+        self.credentials_path.unlink()
+        payload = {
+            "web": {
+                "client_id": "web-client-id",
+                "client_secret": "dummy-secret",
+                "redirect_uris": ["https://classroom-ai-kmc.web.app/oauth/google/callback"],
+            }
+        }
+        cached_creds = FakeCreds(
+            valid=True,
+            scopes=("scope.a",),
+            has_scopes_result=True,
+        )
+        refreshed_creds = FakeCreds(
+            valid=True,
+            scopes=("scope.a",),
+            has_scopes_result=True,
+        )
+        modules_patch, fake_flow, _ = self._patch_google_modules(
+            cached_creds=cached_creds,
+            refreshed_creds=refreshed_creds,
+        )
+
+        with patch.dict(
+            os.environ,
+            {GOOGLE_OAUTH_CLIENT_JSON_ENV: json.dumps(payload)},
+            clear=False,
+        ):
+            with modules_patch:
+                request = start_google_oauth_authorization(
+                    ("scope.a",),
+                    redirect_uri="https://classroom-ai-kmc.web.app/oauth/google/callback",
+                    config=GoogleOAuthConfig(
+                        credentials_path=self.credentials_path,
+                        token_path=self.token_path,
+                    ),
+                )
+
+        self.assertEqual(request.authorization_url, "https://accounts.example.test/auth")
+        self.assertEqual(fake_flow.redirect_uri, "https://classroom-ai-kmc.web.app/oauth/google/callback")
 
     def test_start_google_oauth_authorization_preserves_cached_scopes(self) -> None:
         cached_creds = FakeCreds(

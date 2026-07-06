@@ -1,5 +1,7 @@
 # Google Classroom / CLI OAuth セットアップメモ
 
+この文書は、同一端末で CLI を動かす Desktop app OAuth を主対象にする。ローカル LAN で別端末ブラウザから GUI を使う場合も、課金なしで進めるなら Desktop app client を使い、認可画面はサーバ端末側のブラウザで開く。別端末ブラウザ自身で Google 認可まで完了したい場合は Web application クライアントと `https://<host>/oauth/google/callback` が必要になる。`http://192.168.x.x:8000/...` のような raw IP + HTTP は Web application client では使えない。
+
 ## 1. 現状
 
 2026-07-03 時点で、このリポジトリには以下を追加済みです。
@@ -19,10 +21,9 @@
 - [sansan_competition/exporters.py](/Users/kimura/Desktop/SP活動/2年/後期/sansan-competition/sansan_competition/exporters.py)
   - 実出力の共通処理
 
-まだ入っていないもの:
+このメモで主対象にしていないもの:
 
-- Web GUI 向け OAuth ログイン画面
-- フロントエンド経由の OAuth コールバック処理
+- 別端末ブラウザ向け Web application OAuth の詳細運用
 - PDF の実バイナリ生成
 
 一方で、`kimu` 担当のデータ処理側は、Google API の実呼び出しがなくても進められる状態です。
@@ -68,12 +69,14 @@
 2. 必要 API を有効化する
 3. OAuth consent screen を設定する
 4. Audience が `External` かつ Publishing status が `Testing` の間は、利用する Google アカウントを `Test users` に追加する
-5. CLI 検証用の Desktop app クライアントを作る
-6. `credentials.json` をローカルに置く
-7. `uv` か任意の仮想環境で Google クライアントライブラリを入れる
-8. OAuth を 1 回通して `token.json` を作る
-9. Classroom API で最低限の読み取りを確認する
-10. その取得結果を `kimu` の正規化関数へ渡す
+5. CLI を同一端末で使うなら Desktop app クライアントを作る
+6. ローカル LAN で別端末ブラウザから GUI を使う場合も、まずは Desktop app クライアントを使う
+7. 別端末ブラウザ自身で Google 認可まで完了したい場合だけ Web application クライアントを作る
+8. OAuth client JSON をサーバ側へ登録する
+9. `uv` か任意の仮想環境で Google クライアントライブラリを入れる
+10. OAuth を 1 回通して、端末ごとの設定ディレクトリに `token.json` を作る
+11. Classroom API で最低限の読み取りを確認する
+12. その取得結果を `kimu` の正規化関数へ渡す
 
 ## 4. 有効化すべき API
 
@@ -108,9 +111,15 @@
 
 ## 6. CLI OAuth の最小確認手順
 
-1. Google Cloud Console で Desktop app の OAuth クライアントを作る
+1. Google Cloud Console で OAuth クライアントを作る
+   - 同一端末の CLI 確認だけなら Desktop app
+   - ローカル LAN で別端末ブラウザから GUI を使うだけなら Desktop app
+   - 別端末ブラウザ自身で Google 認可まで完了したいなら Web application。Authorized redirect URI は `https://<host>/oauth/google/callback`
 2. Audience が `External` で Publishing status が `Testing` なら、`Google Auth platform > Audience > Test users` で利用する Google アカウントを追加する
-3. ダウンロードした JSON を、このリポジトリ直下の `credentials.json` に置く
+3. ダウンロードした JSON を登録する
+   - GUI: ログイン画面の `OAuth client JSON を選択` から登録
+   - CLI: `--credentials /path/to/client.json` を付けるか、端末ごとの設定ディレクトリへ保存
+   - repo root に `credentials.json` を置く前提ではない
 4. ライブラリを入れる
 5. 疎通確認スクリプトを実行する
 
@@ -119,13 +128,15 @@ uv sync --extra google
 uv run python scripts/classroom_oauth_smoke.py
 ```
 
-初回実行時はブラウザ認証が走り、成功すると `token.json` が生成されます。
+初回実行時はブラウザ認証が走り、成功すると `token.json` が端末ごとの設定ディレクトリに生成されます。
 
 補足:
 
 - macOS のシステム Python では `python3 -m pip install -e '.[google]'` が `externally-managed-environment` で失敗することがあります。このリポジトリでは `uv` を使う方が安全です。
 - Google 側で 403 `access_denied` が出る場合、コードより先に `Test users` 設定を疑うべきです。
 - OAuth app が `Testing` の間に発行される refresh token は、Google 公式仕様上 7 日で失効します。長期運用前提なら公開前でも再認証前提で扱うか、必要な verification を進める必要があります。
+- ローカル LAN で別端末ブラウザから GUI を使う場合、Google 認可画面はサーバ端末側の既定ブラウザで開きます。別端末ブラウザ側は完了待ちを表示するだけです。
+- 別端末ブラウザ自身で Google 認可まで完了したい場合は、Web application クライアントの Authorized redirect URI に `https://<host>/oauth/google/callback` を追加してください。Desktop app クライアントでは別端末ブラウザの callback を受けられません。redirect URI を追加したら、保存後に JSON を再ダウンロードしてください。
 
 ## 6.5 実データで提出分析を確認する
 
